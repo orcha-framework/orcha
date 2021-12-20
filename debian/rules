@@ -1,0 +1,11 @@
+#! /usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+
+#export DH_VERBOSE=1
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+export PYBUILD_NAME = orcha
+export PYBUILD_DISABLE=test
+# export PYBUILD_INSTALL_ARGS=--install-lib=/usr/local/lib/ --install-scripts=/usr/local/bin/
