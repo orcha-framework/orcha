@@ -1,6 +1,3 @@
-orcha package
-===============
-
 Entry point
 -----------
 

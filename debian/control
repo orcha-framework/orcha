@@ -12,7 +12,7 @@ Build-Depends:
   python3-psutil,
   python3-daemon
 Standards-Version: 3.9.8
-X-Python3-Version: >= 3.6
+X-Python3-Version: >= 3.7
 
 Package: python3-orcha
 Architecture: all

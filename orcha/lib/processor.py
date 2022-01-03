@@ -345,6 +345,7 @@ class Processor:
                 log.debug('received signal petition for message with ID "%d"', m)
                 if m not in self._petitions:
                     log.warning('message with ID "%d" not found or not running!', m)
+                    continue
 
                 pid = self._petitions[m]
                 kill_proc_tree(pid, including_parent=False, sig=signal.SIGINT)

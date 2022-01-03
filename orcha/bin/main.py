@@ -93,8 +93,7 @@ def main():
     )
     parser.add_argument("--version", action="version", version=f"orcha - {version('orcha')}")
     subparsers = parser.add_subparsers(
-        description="Available commands",
-        required=True,
+        title="available commands", required=True, metavar="command"
     )
 
     discovered_plugins = query_plugins()

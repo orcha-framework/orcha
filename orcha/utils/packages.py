@@ -32,12 +32,12 @@ else:
         return get_distribution(pkg).version
 
 
-def version(package: str) -> str:
+def version(package: str = "orcha") -> str:
     """
     Safely returns the version for an installed package on the system.
 
     Args:
-        package (str): the package to get its version
+        package (str): the package to get its version. Defaults to "orcha".
 
     Returns:
         str: package version

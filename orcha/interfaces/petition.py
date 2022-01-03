@@ -28,7 +28,7 @@ import subprocess
 from abc import ABC
 from dataclasses import dataclass, field
 from queue import Queue
-from typing import Callable, NoReturn, Type, TypeVar, Union
+from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
 
 ProcT = Union[subprocess.Popen, int]
 """
@@ -137,6 +137,42 @@ class Petition(ABC):
         petition = Petition(..., condition=lambda _: True)
 
     """
+
+    def communicate(self, message: Any, blocking: bool = True):
+        """
+        Communicates with the source process by sending a message through the internal queue.
+
+        Args:
+            message (any): a valid item that can be put on a :class:`queue.Queue`.
+            blocking (bool): whether to block or not while putting the item on the queue.
+
+        Raises:
+            queue.Full: if the queue has exceeded its maximum capacity and ``blocking`` is set
+                        to :obj:`True`.
+        """
+        self.queue.put(message, block=blocking)
+
+    def communicate_nw(self, message: Any):
+        """
+        Communicates with the source process by sending a message through the internal queue
+        without waiting.
+
+        Args:
+            message (any): a valid item that can be put on a :class:`queue.Queue`.
+
+        Raises:
+            queue.Full: if the queue has exceeded its maximum capacity.
+        """
+        self.queue.put_nowait(message)
+
+    def finish(self, ret: Optional[int] = None):
+        """
+        Notifies to the listening process that the corresponding action has finished.
+
+        Args:
+            ret (int | None): return code of the operation, if any.
+        """
+        self.queue.put(ret)
 
 
 @dataclass(init=False)

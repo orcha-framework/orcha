@@ -147,6 +147,7 @@ class BasePlugin(ABC):
 
         p = self._subparser.add_parser(**kwargs)
         p.set_defaults(owner=self)
+        p.add_argument("--version", action="version", version=self.version())
         return p
 
     def can_handle(self, owner: Type[B]) -> bool:
@@ -220,6 +221,14 @@ def query_plugins() -> List[Type[B]]:
             log.warning(
                 'invalid plugin specified for "%s". '
                 "Is there a plugin export class defined in __init__?",
+                plugin,
+            )
+            continue
+
+        if not issubclass(pl, BasePlugin):
+            log.warning(
+                'invalid class "%s" found when loading plugin "%s" - not a "BasePlugin" subclass',
+                pl,
                 plugin,
             )
             continue

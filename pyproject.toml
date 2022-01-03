@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "orcha"
-version = "0.1.5b9"
+version = "0.1.5b10"
 description = "System handler and orchestrator of multiple environments"
 authors = ["Javier Alonso <jalonso@teldat.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.6.2"
+python = "^3.7"
 psutil = "^5.8.0"
 python-daemon = "^2.3.0"
 Sphinx = {version = "^4.3.2", optional = true}
