@@ -188,3 +188,6 @@ docs/modules/
 .vscode/
 .pybuild
 debian/python3-orcha
+
+# Man pages
+debian/orcha.1
