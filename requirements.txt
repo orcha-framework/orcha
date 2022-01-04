@@ -35,3 +35,5 @@ psutil==5.9.0; (python_version >= "2.6" and python_full_version < "3.0.0") or (p
 python-daemon==2.3.0 \
     --hash=sha256:bda993f1623b1197699716d68d983bb580043cf2b8a66a01274d9b8297b0aeaf \
     --hash=sha256:191c7b67b8f7aac58849abf54e19fe1957ef7290c914210455673028ad454989
+systemd-python==234 \
+    --hash=sha256:fd0e44bf70eadae45aadc292cb0a7eb5b0b6372cd1b391228047d33895db83e7
