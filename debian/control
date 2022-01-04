@@ -10,7 +10,8 @@ Build-Depends:
   python3-docutils,
   python3-sphinx,
   python3-psutil,
-  python3-daemon
+  python3-daemon,
+  python3-systemd
 Standards-Version: 3.9.8
 X-Python3-Version: >= 3.7
 
@@ -20,7 +21,8 @@ Depends:
   ${python3:Depends},
   ${misc:Depends},
   python3-daemon,
-  python3-psutil
+  python3-psutil,
+  python3-systemd
 Description: Python Orcha orchestrator (Python 3)
  This package provides the basic infrastructure for the Orcha
  orchestrator. Notice that this package does nothing by itself,

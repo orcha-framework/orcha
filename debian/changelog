@@ -1,4 +1,11 @@
-python3-orcha (0.1.5b10) UNRELEASED; urgency=medium
+python3-orcha (0.1.5b11) UNRELEASED; urgency=medium
+
+  * Add support for SystemD services
+  * New dependency: python3-systemd
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 04 Jan 2022 08:05:00 +0100
+
+python3-orcha (0.1.5b10) unstable; urgency=medium
 
   * Initial release
 

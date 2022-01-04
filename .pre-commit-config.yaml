@@ -33,4 +33,5 @@ repos:
         additional_dependencies:
           - python-daemon
           - psutil
+          - systemd-python
           - . # this basically does `pip install -e .`

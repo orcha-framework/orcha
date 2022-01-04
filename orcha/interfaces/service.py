@@ -31,6 +31,7 @@ from typing import Iterable
 
 import daemon
 import daemon.pidfile
+import systemd.daemon
 from daemon import DaemonContext
 
 from orcha.lib.manager import Manager
@@ -145,7 +146,7 @@ def register_service(
     )
 
 
-def start_service(service: ServiceWrapper):
+def start_service(service: ServiceWrapper, do_notify: bool = True):
     """Helper function that starts the service as a demon or in the foreground,
     depending on :attr:`ServiceWrapper.context`.
 
@@ -155,6 +156,8 @@ def start_service(service: ServiceWrapper):
 
     Args:
         service (ServiceWrapper): service specifications object.
+        do_notify (bool): notify SystemD that our service is ready
+                          (only when running on foreground).
 
     Returns:
         int: return code of the process. If on foreground, this function never returns
@@ -165,13 +168,30 @@ def start_service(service: ServiceWrapper):
             service.manager.serve()
         exit(0)
 
+    def do_shutdown(*_):
+        if do_notify:
+            systemd.daemon.notify("STOPPING=1")
+        service.manager.shutdown()
+
+    # map signals when running on foreground
+    signal.signal(signal.SIGTERM, do_shutdown)
+    signal.signal(signal.SIGINT, do_shutdown)
+
+    ret = 0
     try:
         service.manager.start()
+        if do_notify:
+            systemd.daemon.notify("READY=1")
+
         service.manager.join()
-    except KeyboardInterrupt:
-        log.info("Ctrl + C captured! Finishing...")
-        service.manager.shutdown()
-        exit(0)
+    except Exception as err:
+        log.critical("unhandled exception while starting manager! %s", err, exc_info=True)
+        if do_notify:
+            systemd.daemon.notify("ERRNO=98")
+        ret = 1
+    finally:
+        do_shutdown()
+        exit(ret)
 
 
 __all__ = ["register_service", "start_service", "ServiceWrapper"]
