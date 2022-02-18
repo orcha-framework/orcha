@@ -1,4 +1,10 @@
-python3-orcha (0.1.5b11) UNRELEASED; urgency=medium
+python3-orcha (0.1.6) UNRELEASED; urgency=medium
+
+  * Support for string identifiers in messages/petitions
+
+ -- Javier Alonso <jalonso@teldat.com>  Fri, 18 Feb 2022 08:50:00 +0100
+
+python3-orcha (0.1.5b11) unstable; urgency=medium
 
   * Add support for SystemD services
   * New dependency: python3-systemd

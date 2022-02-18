@@ -222,12 +222,16 @@ class Processor:
         with self.lock:
             self._running = v
 
-    def exists(self, m: Union[Message, int]) -> bool:
-        """Checks if the given message is running or not
+    def exists(self, m: Union[Message, int, str]) -> bool:
+        """
+        Checks if the given message is running or not.
+
+        .. versionchanged:: 0.1.6
+           Attribute :attr:`m` now supports a :obj:`str` as ID.
 
         Args:
-            m (Union[Message, int]): the message to check or its
-                                     :attr:`id <orcha.interfaces.Message.id>`
+            m (:obj:`Message` | :obj:`int` | :obj:`str`]): the message to check or its
+                :attr:`id <orcha.interfaces.Message.id>` (if :obj:`int` or :obj:`str`).
 
         Returns:
             bool: :obj:`True` if running, :obj:`False` if not.
@@ -248,16 +252,20 @@ class Processor:
         """
         self.queue.put(m)
 
-    def finish(self, m: Union[Message, int]):
-        """Sets a finish signal for the given message
+    def finish(self, m: Union[Message, int, str]):
+        """Sets a finish signal for the given message.
+
+        .. versionchanged:: 0.1.6
+           Attribute :attr:`m` now supports a :obj:`str` as ID.
 
         Args:
-            m (Union[Message, int]): the message or its :attr:`id <orcha.interfaces.Message.id>`
+            m (:obj:`Message` | :obj:`int` | :obj:`str`): the message or its
+                :attr:`id <orcha.interfaces.Message.id>` (if :obj:`int` or :obj:`str`).
         """
         if isinstance(m, Message):
             m = m.id
 
-        log.debug("received petition for finish message with ID %d", m)
+        log.debug("received petition for finish message with ID %s", m)
         self.finishq.put(m)
 
     def _process(self):
@@ -303,7 +311,7 @@ class Processor:
 
         def assign_pid(proc: Union[subprocess.Popen, int]):
             pid = proc if isinstance(proc, int) else proc.pid
-            log.debug('assigning pid to "%d"', pid)
+            log.debug('assigning pid to "%s"', pid)
             self._petitions[p.id] = pid
             self.manager.on_start(p)
 
@@ -342,9 +350,9 @@ class Processor:
                 m = m.id
 
             if m is not None:
-                log.debug('received signal petition for message with ID "%d"', m)
+                log.debug('received signal petition for message with ID "%s"', m)
                 if m not in self._petitions:
-                    log.warning('message with ID "%d" not found or not running!', m)
+                    log.warning('message with ID "%s" not found or not running!', m)
                     continue
 
                 pid = self._petitions[m]

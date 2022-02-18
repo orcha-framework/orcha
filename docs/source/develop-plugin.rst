@@ -293,7 +293,7 @@ With that in mind, let's start creating our plugin::
         client_parser.set_defaults(side="client")
         client_parser.add_argument(
             "id",
-            type=int,
+            type=str,
             metavar="ID",
             help="Identifier of the message to send",
         )

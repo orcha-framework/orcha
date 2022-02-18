@@ -23,6 +23,7 @@
 :class:`Message` specifies the message structure that will be accepted by the server.
 """
 from dataclasses import dataclass, field
+from typing import Union
 
 
 @dataclass(frozen=True)
@@ -42,9 +43,12 @@ class Message:
     :see: :py:mod:`pickle`
     """
 
-    id: int = field()
+    id: Union[int, str] = field()
     """
     Unique identifier for the message. If duplicated, the message is rejected.
+
+    .. versionchanged:: 0.1.6
+       Accept :obj:`str` as unique ID identifier also.
     """
 
     extras: dict = field(compare=False)

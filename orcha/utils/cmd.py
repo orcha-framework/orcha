@@ -120,4 +120,4 @@ def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SI
         if including_parent:
             parent.send_signal(sig)
     except psutil.NoSuchProcess:
-        log.warning("error while trying to kill proccess with id %d", pid)
+        log.warning("error while trying to kill proccess with id %s", pid)

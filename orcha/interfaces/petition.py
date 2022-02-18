@@ -87,10 +87,13 @@ class Petition(ABC):
     Items with the same priority may keep input order, but it is not guaranteed.
     """
 
-    id: int = field(compare=False)
+    id: Union[int, str] = field(compare=False)
     """
     Unique identifier for this petition. This value must directly be extracted from
     :attr:`Message.id`.
+
+    .. versionchanged:: 0.1.6
+       Accept :obj:`str` as unique ID identifier also.
     """
 
     queue: Queue = field(compare=False, repr=False)

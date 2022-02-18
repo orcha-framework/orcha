@@ -345,18 +345,20 @@ class Manager(ABC):
                                   has been tried to enqueue.
         """
 
-    def finish(self, message: Union[Message, int]):
+    def finish(self, message: Union[Message, int, str]):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
 
         If the manager hasn't been shutdown, enqueues the request and exists immediately.
         Further processing is leveraged to the processor itself.
 
+        .. versionchanged:: 0.1.6
+           :attr:`message` now supports string as the given type for representing an ID.
+
         Args:
-            message (Union[Message, int]): the message to finish. If it is an :py:class:`int`,
-                                           then the message
-                                           :attr:`id <orcha.interfaces.Message.id>` is
-                                           assumed as the argument.
+            message (:class:`Message` | :obj:`int` | :obj:`str`): the message to finish.
+                If it is either an :obj:`int` or :obj:`str`, then the message
+                :attr:`id <orcha.interfaces.Message.id>` is assumed as the argument.
 
         Raises:
             ManagerShutdownError: if the manager has been shutdown and a new finish request
@@ -367,15 +369,15 @@ class Manager(ABC):
         if not self._shutdown.value:
             return self.processor.enqueue(m)
 
-        log.debug("we're off - enqueue petition not accepted for message with ID %d", m.id)
+        log.debug("we're off - enqueue petition not accepted for message with ID %s", m.id)
         raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
 
-    def _finish_message(self, m: Union[Message, int]):
+    def _finish_message(self, m: Union[Message, int, str]):
         if not self._shutdown.value:
             return self.processor.finish(m)
 
         log.debug(
-            "we're off - finish petition not accepted for message with ID %d",
+            "we're off - finish petition not accepted for message with ID %s",
             m.id if isinstance(m, Message) else m,
         )
         raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
@@ -397,7 +399,7 @@ class Manager(ABC):
         self.register("send", send_fn)
         self.register("finish", finish_fn)
 
-    def is_running(self, x: Union[Message, Petition, int]) -> bool:
+    def is_running(self, x: Union[Message, Petition, int, str]) -> bool:
         """With the given arg, returns whether the petition is already
         running or not yet. Its state can be:
 
@@ -405,9 +407,12 @@ class Manager(ABC):
             + Executing right now.
             + Executed and finished.
 
+        .. versionchanged:: 0.1.6
+           Attribute :attr:`x` now supports a string as the ID.
+
         Args:
-            x (Union[Message, Petition, int]): the message/petition/identifier to check for
-                                               its state.
+            x (:obj:`Message` | :obj:`Petition` | :obj:`int` | :obj:`str`]): the
+                message/petition/identifier to check for its state.
 
         Raises:
             NotImplementedError: if trying to run this method as a client
