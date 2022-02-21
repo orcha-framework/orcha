@@ -116,6 +116,11 @@ class Manager(ABC):
     pending petition before quitting. If not called, some garbage can left and your code
     will be prone to memory leaks.
 
+    .. versionadded:: 0.1.7
+       Processor now supports an attribute :attr:`look_ahead` which allows defining an
+       amount of items that will be pop-ed from the queue, modifying the default behavior
+       of just obtaining a single item.
+
     Args:
         listen_address (str, optional): address used when declaring a
                                         :class:`Manager <multiprocessing.managers.BaseManager>`
@@ -140,6 +145,12 @@ class Manager(ABC):
         is_client (bool, optional): whether if the current manager behaves like a client or not,
                                     defining different actions on function calls.
                                     Defaults to :obj:`False`.
+        look_ahead (:obj:`int`, optional): amount of items to look ahead when querying the queue.
+            Having a value higher than 1 allows the processor to access items further in the queue
+            if, for any reason, the next one is not available yet to be executed but the second
+            one is (i.e.: if you define priorities based on time, allow the second item to be
+            executed before the first one). Take special care with this parameter as this may
+            cause starvation in processes.
     """
 
     def __init__(
@@ -151,6 +162,7 @@ class Manager(ABC):
         queue: Queue = None,
         finish_queue: Queue = None,
         is_client: bool = False,
+        look_ahead: int = 1,
     ):
         self.manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         """
@@ -169,7 +181,7 @@ class Manager(ABC):
             log.debug("creating processor for %s", self)
             queue = queue or _queue
             finish_queue = finish_queue or _finish_queue
-            self.processor = Processor(queue, finish_queue, self)
+            self.processor = Processor(queue, finish_queue, self, look_ahead)
 
         log.debug("manager created - running setup...")
         try:
@@ -260,6 +272,10 @@ class Manager(ABC):
 
         :see: :func:`Processor.shutdown`.
         """
+        if self._shutdown.value:
+            log.debug("already shutting down")
+            return
+
         self._shutdown.value = True
         try:
             if self._create_processor and not self._is_client:

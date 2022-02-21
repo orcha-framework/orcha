@@ -183,7 +183,7 @@ def start_service(service: ServiceWrapper, do_notify: bool = True):
         if do_notify:
             systemd.daemon.notify("READY=1")
 
-        service.manager.join()
+        signal.pause()
     except Exception as err:
         log.critical("unhandled exception while starting manager! %s", err, exc_info=True)
         if do_notify:

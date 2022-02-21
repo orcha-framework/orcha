@@ -158,6 +158,11 @@ class Processor:
         never end and you will have to manually force finish it (which may cause zombie
         processes or memory leaks).
 
+    .. versionadded:: 0.1.7
+       Processor now supports an attribute :attr:`look_ahead` which allows defining an
+       amount of items that will be pop-ed from the queue, modifying the default behavior
+       of just obtaining a single item.
+
     Args:
         queue (multiprocessing.Queue, optional): queue in which new :class:`Message` s are
                                                  expected to be. Defaults to :obj:`None`.
@@ -165,6 +170,12 @@ class Processor:
                                                    Defaults to :obj:`None`.
         manager (:class:`Manager`, optional): manager object used for synchronization and action
                                               calling. Defaults to :obj:`None`.
+        look_ahead (:obj:`int`, optional): amount of items to look ahead when querying the queue.
+            Having a value higher than 1 allows the processor to access items further in the queue
+            if, for any reason, the next one is not available yet to be executed but the second
+            one is (i.e.: if you define priorities based on time, allow the second item to be
+            executed before the first one). Take special care with this parameter as this may
+            cause starvation in processes.
 
     Raises:
         ValueError: when no arguments are given and the processor has not been initialized yet.
@@ -184,6 +195,7 @@ class Processor:
         queue: multiprocessing.Queue = None,
         finishq: multiprocessing.Queue = None,
         manager=None,
+        look_ahead: int = 1,
     ):
         if self.__must_init__:
             if not all((queue, finishq, manager)):
@@ -193,6 +205,7 @@ class Processor:
             self.queue = queue
             self.finishq = finishq
             self.manager = manager
+            self.look_ahead = look_ahead
             self.running = True
 
             self._internalq = PriorityQueue()
@@ -295,15 +308,31 @@ class Processor:
     def _internal_process(self):
         while self.running:
             log.debug("waiting for internal petition...")
-            p: Petition = self._internalq.get()
-            if not isinstance(p, EmptyPetition):
-                log.debug('creating thread for petition "%s"', p)
-                launch_t = Thread(target=self._start, args=(p,))
+            empty = False
+            items_to_enqueue = []
+            log.debug("looking ahead %d items", self.look_ahead)
+            for i in range(1, self.look_ahead + 1):
+                p: Petition = self._internalq.get()
+                if not isinstance(p, EmptyPetition):
+                    log.debug('adding petition "%s" to list of possible petitions', p)
+                    items_to_enqueue.append(p)
+                else:
+                    log.debug("received empty petition")
+                    empty = True
+                    break
+
+                if i > self._internalq.qsize():
+                    break
+
+            for item in items_to_enqueue:
+                log.debug('creating thread for petition "%s"', item)
+                launch_t = Thread(target=self._start, args=(item,))
                 launch_t.start()
                 self._threads.append(launch_t)
-                sleep(random.uniform(0.1, 0.5))
-            else:
-                log.debug("received empty petition")
+
+            if not empty:
+                sleep(random.uniform(0.5, 5))
+
         log.debug("internal process handler finished")
 
     def _start(self, p: Petition):
