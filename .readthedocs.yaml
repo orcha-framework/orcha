@@ -13,6 +13,13 @@ sphinx:
 formats:
    - pdf
 
+# Additional packages required when building
+build:
+  apt_packages:
+    - python3-pip
+    - python3-sphinx
+    - libsystemd-dev
+
 # Optionally set the version of Python and requirements required to build your docs
 python:
    version: "3"
