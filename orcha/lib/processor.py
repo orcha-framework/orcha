@@ -356,9 +356,10 @@ class Processor:
                 log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
                 self._internalq.put(p)
                 self._gc_event.set()
-            else:
-                log.debug('petition "%s" satisfied condition', p)
-                self.manager.on_start(p)
+                return
+
+            log.debug('petition "%s" satisfied condition', p)
+            self.manager.on_start(p)
 
         try:
             p.action(assign_pid, p)
