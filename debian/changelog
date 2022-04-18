@@ -1,8 +1,14 @@
-python3-orcha (0.1.7) UNRELEASED; urgency=medium
+python3-orcha (0.1.8) UNRELEASED; urgency=medium
+
+  * Protect manager "on_start" and "on_finish" calls with a mutex region
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 18 Apr 2022 09:55:00 +0200
+
+python3-orcha (0.1.7) unstable; urgency=medium
 
   * Add `look_ahead' parameter to the orchestrator processor
 
- -- Jenkins <jenkins@teldat.com>  Mon, 21 Feb 2022 12:00:00 +0000
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 21 Feb 2022 12:00:00 +0100
 
 python3-orcha (0.1.6) unstable; urgency=medium
 

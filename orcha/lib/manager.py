@@ -508,6 +508,11 @@ class Manager(ABC):
                     def on_start(self, *args):
                         super().on_start(*args)
 
+            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            a mutex environment, so it is **required** that no unhandled exception happens here
+            and that the operations done are minimal, as other processes will have to wait until
+            this call is done.
+
         Args:
             petition (Petition): the petition that has just started
         """
@@ -553,6 +558,11 @@ class Manager(ABC):
                 + The current manager **is a client**.
                 + The :class:`petition <orcha.interfaces.Petition>` was not registered (it is not
                   a running petition).
+
+            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            a mutex environment, so it is **required** that no unhandled exception happens here
+            and that the operations done are minimal, as other processes will have to wait until
+            this call is done.
 
         Args:
             petition (Petition): the petition that has just started

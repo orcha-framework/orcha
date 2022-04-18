@@ -163,6 +163,13 @@ class Processor:
        amount of items that will be pop-ed from the queue, modifying the default behavior
        of just obtaining a single item.
 
+    .. versionadded:: 0.1.8
+       Manager calls to :func:`on_start <orcha.lib.Manager.on_start>` and
+       :func:`on_finish <orcha.lib.Manager.on_finish>` are performed in a mutex environment,
+       so there is no need to do any kind of extra processing at the
+       :func:`condition <orcha.interfaces.Petition.condition>` function. Nevertheless, the
+       actual action run there should be minimal as it will block any other process.
+
     Args:
         queue (multiprocessing.Queue, optional): queue in which new :class:`Message` s are
                                                  expected to be. Defaults to :obj:`None`.
@@ -213,6 +220,7 @@ class Processor:
             self._threads: List[Thread] = []
             self._petitions: Dict[int, int] = {}
             self._gc_event = Event()
+            self._pred_lock = Lock()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
             self._finished_t = Thread(target=self._signal_handler)
@@ -342,24 +350,28 @@ class Processor:
             pid = proc if isinstance(proc, int) else proc.pid
             log.debug('assigning pid to "%s"', pid)
             self._petitions[p.id] = pid
-            self.manager.on_start(p)
 
-        if not p.condition(p):
-            log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
-            self._internalq.put(p)
-            self._gc_event.set()
-        else:
-            log.debug('petition "%s" satisfied condition', p)
-            try:
-                p.action(assign_pid, p)
-            except Exception as e:
-                log.warning(
-                    'unhandled exception while running petition "%s" -> "%s"', p, e, exc_info=True
-                )
-            finally:
-                log.debug('petition "%s" finished, triggering callbacks', p)
-                self._petitions.pop(p.id, None)
+        with self._pred_lock:
+            if not p.condition(p):
+                log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
+                self._internalq.put(p)
                 self._gc_event.set()
+            else:
+                log.debug('petition "%s" satisfied condition', p)
+                self.manager.on_start(p)
+
+        try:
+            p.action(assign_pid, p)
+        except Exception as e:
+            log.warning(
+                'unhandled exception while running petition "%s" -> "%s"', p, e, exc_info=True
+            )
+        finally:
+            log.debug('petition "%s" finished, triggering callbacks', p)
+            self._petitions.pop(p.id, None)
+            self._gc_event.set()
+
+            with self._pred_lock:
                 self.manager.on_finish(p)
 
     def _signal_handler(self):
