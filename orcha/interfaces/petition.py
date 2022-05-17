@@ -27,6 +27,7 @@ cannot be sent from clients to servers and vice versa.
 import subprocess
 from abc import ABC
 from dataclasses import dataclass, field
+from functools import total_ordering
 from queue import Queue
 from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
 
@@ -51,7 +52,8 @@ inherits from it.
 """
 
 
-@dataclass(order=True)
+@total_ordering
+@dataclass
 class Petition(ABC):
     """Class that represents a petition that should be executed on the server.
     This class must have the ability to being created from an existing
@@ -71,11 +73,11 @@ class Petition(ABC):
     This class is intended to be a stub so your implementation must inherit
     from this one.
 
-    Warning:
-
-        Subclasses must declare fields with ``compare=False``
-        as without that the algorithm may break and items are not placed in the order
-        you expect.
+    .. versionchanged:: 0.1.9
+        We define our own equality and comparison operators, there is no need
+        in subclasses declaring fields as ``compare=False``. It is only checked
+        the ID (for equality/inequality tests) and the priority (for comparison
+        tests).
 
     :see: :py:func:`field <dataclasses.field>`
     """
@@ -176,6 +178,30 @@ class Petition(ABC):
             ret (int | None): return code of the operation, if any.
         """
         self.queue.put(ret)
+
+    def __eq__(self, __o: object) -> bool:
+        # ensure we are comparing against our class or a subclass of ours
+        if not isinstance(__o, Petition):
+            raise NotImplementedError()
+
+        sid = self.id
+        oid = __o.id
+
+        # if IDs are not strings, convert them so we can truly compare
+        if not isinstance(sid, str):
+            sid = str(sid)
+
+        if not isinstance(oid, str):
+            oid = str(oid)
+
+        return sid == oid
+
+    def __lt__(self, __o: object) -> bool:
+        if not isinstance(__o, Petition):
+            raise NotImplementedError()
+
+        # we check equality for the priorities
+        return self.priority < __o.priority
 
 
 @dataclass(init=False)

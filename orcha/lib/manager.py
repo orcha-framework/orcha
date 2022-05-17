@@ -117,9 +117,18 @@ class Manager(ABC):
     will be prone to memory leaks.
 
     .. versionadded:: 0.1.7
-       Processor now supports an attribute :attr:`look_ahead` which allows defining an
-       amount of items that will be pop-ed from the queue, modifying the default behavior
-       of just obtaining a single item.
+        Processor now supports an attribute :attr:`look_ahead <orcha.lib.Processor.look_ahead>`
+        which allows defining an amount of items that will be pop-ed from the queue,
+        modifying the default behavior of just obtaining a single item. Setting the
+        :class:`Manager`'s ``look_ahead`` will set :class:`Processor`'s ``look_ahead`` too.
+
+    .. versionadded:: 0.1.9
+        Processor supports a new attribute
+        :attr:`notify_watchdog <orcha.lib.Processor.notify_watchdog>`
+        that defines if the processor shall create a background thread that takes care of
+        notifying systemd about our status and, if dead, to restart us.
+        Setting the :class:`Manager`'s ``notify_watchdog`` will set
+        :class:`Processor`'s ``notify_watchdog`` too.
 
     Args:
         listen_address (str, optional): address used when declaring a
@@ -151,6 +160,10 @@ class Manager(ABC):
             one is (i.e.: if you define priorities based on time, allow the second item to be
             executed before the first one). Take special care with this parameter as this may
             cause starvation in processes.
+        notify_watchdog (:obj:`bool`, optional): if the service is running under systemd,
+            notify periodically (every 5 seconds) that we are alive and doing things. If there
+            is any kind of unexpected error, a watchdog trigger will be set and the service
+            will be restarted.
     """
 
     def __init__(
@@ -163,6 +176,7 @@ class Manager(ABC):
         finish_queue: Queue = None,
         is_client: bool = False,
         look_ahead: int = 1,
+        notify_watchdog: bool = False,
     ):
         self.manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         """
@@ -181,7 +195,7 @@ class Manager(ABC):
             log.debug("creating processor for %s", self)
             queue = queue or _queue
             finish_queue = finish_queue or _finish_queue
-            self.processor = Processor(queue, finish_queue, self, look_ahead)
+            self.processor = Processor(queue, finish_queue, self, look_ahead, notify_watchdog)
 
         log.debug("manager created - running setup...")
         try:

@@ -1,4 +1,18 @@
-python3-orcha (0.1.8) UNRELEASED; urgency=medium
+python3-orcha (0.1.9) UNRELEASED; urgency=medium
+
+  * Processor class is now more resilient and handles unexpected exceptions by
+    notifying SystemD about our status more frequently. If an unexpected error
+    happens (and we are a SystemD service), the watchdog will be triggered and
+    we expect to be restarted.
+  * Petition objects now implement both equality and comparison operators. We
+    relied on dataclasses for such purpose but we've seen some exceptions that
+    are happening when an EmptyPetition (for notifying that we have finished) is
+    enqueued. Looks like dataclass' __eq__ and __lt__ operators require both
+    objects to be exactly the same class, and it does not support subclasses.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 17 May 2022 09:00:00 +0200
+
+python3-orcha (0.1.8) unstable; urgency=medium
 
   * Protect manager "on_start" and "on_finish" calls with a mutex region
 
