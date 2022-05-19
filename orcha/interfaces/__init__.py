@@ -21,7 +21,14 @@
 #                                    SOFTWARE.
 """:mod:`interfaces` defines the basic structure needed when communicating with Orcha"""
 from .message import Message
-from .petition import ActionCallbackT, EmptyPetition, P, Petition, ProcT
+from .petition import (
+    ActionCallbackT,
+    EmptyPetition,
+    P,
+    Petition,
+    ProcT,
+    WatchdogPetition,
+)
 from .service import ServiceWrapper, register_service, start_service
 
 __all__ = [
@@ -34,4 +41,5 @@ __all__ = [
     "register_service",
     "ServiceWrapper",
     "start_service",
+    "WatchdogPetition",
 ]

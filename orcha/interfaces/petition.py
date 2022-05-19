@@ -204,7 +204,7 @@ class Petition(ABC):
         return self.priority < __o.priority
 
 
-@dataclass(init=False)
+@dataclass(init=False, frozen=True)
 class EmptyPetition(Petition):
     """
     Empty petition which will run always the latest (as its priority is ``inf``).
@@ -227,10 +227,35 @@ class EmptyPetition(Petition):
         pass
 
 
+@dataclass(init=False, frozen=True)
+class WatchdogPetition(Petition):
+    """
+    Watchdog petition has always the greatest priority so it should be run the first
+    whenever it is received. It is used for indicating whether the processor should
+    watchdog the SystemD main process so we inform we are still running.
+
+    Warning:
+        The priority of this petition is always the higher (using ``float("-inf")``),
+        be careful whenever you place a custom petition with higher priority: do not
+        use ``float("-inf")`` as an expression, try keeping your priorities above ``0``
+        an go as high as you want.
+    """
+
+    priority = float("-inf")
+    id = -1
+    queue = None
+    action = None
+    condition = None
+
+    def __init__(self):
+        pass
+
+
 __all__ = [
     "ActionCallbackT",
     "EmptyPetition",
     "P",
     "Petition",
     "ProcT",
+    "WatchdogPetition",
 ]

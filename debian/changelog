@@ -1,4 +1,13 @@
-python3-orcha (0.1.9) UNRELEASED; urgency=medium
+python3-orcha (0.1.10) UNRELEASED; urgency=medium
+
+  * Improve watchdog mechanism by leveraging the handling to the internal
+    processor, the same that handles all the petitions (and which could fail
+    due to a deadlock or being blocked or any queue mechanism not working as
+    expected).
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 19 May 2022 09:25:00 +0200
+
+python3-orcha (0.1.9) unstable; urgency=medium
 
   * Processor class is now more resilient and handles unexpected exceptions by
     notifying SystemD about our status more frequently. If an unexpected error

@@ -36,7 +36,7 @@ import systemd.daemon as systemd
 
 from orcha import properties
 from orcha.interfaces.message import Message
-from orcha.interfaces.petition import EmptyPetition, Petition
+from orcha.interfaces.petition import EmptyPetition, Petition, WatchdogPetition
 from orcha.utils.cmd import kill_proc_tree
 from orcha.utils.logging_utils import get_logger
 
@@ -346,13 +346,16 @@ class Processor:
                 log.debug("looking ahead %d items", self.look_ahead)
                 for i in range(1, self.look_ahead + 1):
                     p: Petition = self._internalq.get()
-                    if not isinstance(p, EmptyPetition):
+                    if not isinstance(p, (EmptyPetition, WatchdogPetition)):
                         log.debug('adding petition "%s" to list of possible petitions', p)
                         items_to_enqueue.append(p)
-                    else:
+                    elif isinstance(p, EmptyPetition):
                         log.debug("received empty petition")
                         empty = True
                         break
+                    elif self.notify_watchdog and isinstance(p, WatchdogPetition):
+                        log.debug("received watchdog request [WD is enabled for this instance]")
+                        systemd.notify("WATCHDOG=1")
 
                     if i > self._internalq.qsize():
                         break
@@ -464,7 +467,7 @@ class Processor:
 
     def _notify_watchdog(self):
         while self.running and self.notify_watchdog:
-            systemd.notify("WATCHDOG=1")
+            self._internalq.put(WatchdogPetition())
             sleep(5)
 
     def shutdown(self):
