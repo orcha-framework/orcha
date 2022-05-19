@@ -204,7 +204,7 @@ class Petition(ABC):
         return self.priority < __o.priority
 
 
-@dataclass(init=False, frozen=True)
+@dataclass(init=False)
 class EmptyPetition(Petition):
     """
     Empty petition which will run always the latest (as its priority is ``inf``).
@@ -227,7 +227,7 @@ class EmptyPetition(Petition):
         pass
 
 
-@dataclass(init=False, frozen=True)
+@dataclass(init=False)
 class WatchdogPetition(Petition):
     """
     Watchdog petition has always the greatest priority so it should be run the first
