@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="orcha",
-    version="0.1.7",
+    version="0.1.12",
     packages=[
         "orcha.bin",
         "orcha.exceptions",
@@ -12,7 +12,7 @@ setup(
         "orcha.utils",
         "orcha",
     ],
-    url="",
+    url="https://github.com/Javinator9889/orcha",
     license="",
     author="Javinator9889",
     author_email="jalonso@teldat.com",

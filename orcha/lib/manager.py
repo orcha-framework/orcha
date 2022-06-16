@@ -117,9 +117,18 @@ class Manager(ABC):
     will be prone to memory leaks.
 
     .. versionadded:: 0.1.7
-       Processor now supports an attribute :attr:`look_ahead` which allows defining an
-       amount of items that will be pop-ed from the queue, modifying the default behavior
-       of just obtaining a single item.
+        Processor now supports an attribute :attr:`look_ahead <orcha.lib.Processor.look_ahead>`
+        which allows defining an amount of items that will be pop-ed from the queue,
+        modifying the default behavior of just obtaining a single item. Setting the
+        :class:`Manager`'s ``look_ahead`` will set :class:`Processor`'s ``look_ahead`` too.
+
+    .. versionadded:: 0.1.9
+        Processor supports a new attribute
+        :attr:`notify_watchdog <orcha.lib.Processor.notify_watchdog>`
+        that defines if the processor shall create a background thread that takes care of
+        notifying systemd about our status and, if dead, to restart us.
+        Setting the :class:`Manager`'s ``notify_watchdog`` will set
+        :class:`Processor`'s ``notify_watchdog`` too.
 
     Args:
         listen_address (str, optional): address used when declaring a
@@ -151,6 +160,10 @@ class Manager(ABC):
             one is (i.e.: if you define priorities based on time, allow the second item to be
             executed before the first one). Take special care with this parameter as this may
             cause starvation in processes.
+        notify_watchdog (:obj:`bool`, optional): if the service is running under systemd,
+            notify periodically (every 5 seconds) that we are alive and doing things. If there
+            is any kind of unexpected error, a watchdog trigger will be set and the service
+            will be restarted.
     """
 
     def __init__(
@@ -163,6 +176,7 @@ class Manager(ABC):
         finish_queue: Queue = None,
         is_client: bool = False,
         look_ahead: int = 1,
+        notify_watchdog: bool = False,
     ):
         self.manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         """
@@ -181,7 +195,7 @@ class Manager(ABC):
             log.debug("creating processor for %s", self)
             queue = queue or _queue
             finish_queue = finish_queue or _finish_queue
-            self.processor = Processor(queue, finish_queue, self, look_ahead)
+            self.processor = Processor(queue, finish_queue, self, look_ahead, notify_watchdog)
 
         log.debug("manager created - running setup...")
         try:
@@ -221,14 +235,34 @@ class Manager(ABC):
 
         self._processor = processor
 
-    def connect(self):
+    def connect(self) -> bool:
         """
         Connects to an existing :class:`Manager` when acting as a client. This
         method can be used also when the manager is a server, if you want that
         server to behave like a client.
+
+        Returns:
+            :obj:`bool`: :obj:`True` if connection was successful, :obj:`False` otherwise.
+
+        .. versionadded:: 0.1.12
+            This method catches the
+            :obj:`AuthenticationError <multiprocessing.AuthenticationError>`
+            exception and produces an informative message indicating that, maybe,
+            authentication key is missing. In addition, this method returns a :obj:`bool`
+            indicating whether if connection was successful or not.
         """
         log.debug("connecting to manager")
-        self.manager.connect()  # pylint: disable=no-member
+        try:
+            self.manager.connect()  # pylint: disable=no-member
+            return True
+        except multiprocessing.AuthenticationError as e:
+            log.fatal(
+                'Authentication against server [%s:%d] failed! Maybe "--key" is missing?',
+                self.manager.address[0],  # pylint: disable=no-member
+                self.manager.address[1],  # pylint: disable=no-member
+            )
+            log.fatal(e)
+            return False
 
     def start(self):
         """
@@ -345,6 +379,7 @@ class Manager(ABC):
 
         setattr(self, name, temp)
 
+    # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
     def send(self, message: Message):
         """Sends a :class:`Message <orcha.interface.Message>` to the server manager.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -360,7 +395,9 @@ class Manager(ABC):
             ManagerShutdownError: if the manager has been shutdown and a new message
                                   has been tried to enqueue.
         """
+        ...
 
+    # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
     def finish(self, message: Union[Message, int, str]):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -380,6 +417,7 @@ class Manager(ABC):
             ManagerShutdownError: if the manager has been shutdown and a new finish request
                                   has been tried to enqueue.
         """
+        ...
 
     def _add_message(self, m: Message):
         if not self._shutdown.value:
@@ -508,6 +546,11 @@ class Manager(ABC):
                     def on_start(self, *args):
                         super().on_start(*args)
 
+            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            a mutex environment, so it is **required** that no unhandled exception happens here
+            and that the operations done are minimal, as other processes will have to wait until
+            this call is done.
+
         Args:
             petition (Petition): the petition that has just started
         """
@@ -553,6 +596,11 @@ class Manager(ABC):
                 + The current manager **is a client**.
                 + The :class:`petition <orcha.interfaces.Petition>` was not registered (it is not
                   a running petition).
+
+            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            a mutex environment, so it is **required** that no unhandled exception happens here
+            and that the operations done are minimal, as other processes will have to wait until
+            this call is done.
 
         Args:
             petition (Petition): the petition that has just started
