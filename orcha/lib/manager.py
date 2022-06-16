@@ -235,14 +235,34 @@ class Manager(ABC):
 
         self._processor = processor
 
-    def connect(self):
+    def connect(self) -> bool:
         """
         Connects to an existing :class:`Manager` when acting as a client. This
         method can be used also when the manager is a server, if you want that
         server to behave like a client.
+
+        Returns:
+            :obj:`bool`: :obj:`True` if connection was successful, :obj:`False` otherwise.
+
+        .. versionadded:: 0.1.12
+            This method catches the
+            :obj:`AuthenticationError <multiprocessing.AuthenticationError>`
+            exception and produces an informative message indicating that, maybe,
+            authentication key is missing. In addition, this method returns a :obj:`bool`
+            indicating whether if connection was successful or not.
         """
         log.debug("connecting to manager")
-        self.manager.connect()  # pylint: disable=no-member
+        try:
+            self.manager.connect()  # pylint: disable=no-member
+            return True
+        except multiprocessing.AuthenticationError as e:
+            log.fatal(
+                'Authentication against server [%s:%d] failed! Maybe "--key" is missing?',
+                self.manager.address[0],  # pylint: disable=no-member
+                self.manager.address[1],  # pylint: disable=no-member
+            )
+            log.fatal(e)
+            return False
 
     def start(self):
         """
@@ -359,6 +379,7 @@ class Manager(ABC):
 
         setattr(self, name, temp)
 
+    # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
     def send(self, message: Message):
         """Sends a :class:`Message <orcha.interface.Message>` to the server manager.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -374,7 +395,9 @@ class Manager(ABC):
             ManagerShutdownError: if the manager has been shutdown and a new message
                                   has been tried to enqueue.
         """
+        ...
 
+    # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
     def finish(self, message: Union[Message, int, str]):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -394,6 +417,7 @@ class Manager(ABC):
             ManagerShutdownError: if the manager has been shutdown and a new finish request
                                   has been tried to enqueue.
         """
+        ...
 
     def _add_message(self, m: Message):
         if not self._shutdown.value:

@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: orcha
 Upstream-Contact: Javier Alonso <jalonso@teldat.com>
-Source: http://repos.id.teldat.com/git/osdx/cgit.cgi/tools/orcha/
+Source: https://github.com/Javinator9889/orcha
 Files: *
 Copyright: 2021 Teldat Inc.
 License: MIT

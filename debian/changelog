@@ -1,9 +1,18 @@
-python3-orcha (0.1.11) UNRELEASED; urgency=medium
+python3-orcha (0.1.12) UNRELEASED; urgency=medium
+
+  * Key parameter is not mandatory anymore - some plugins may not require it for working.
+  * Improve authentication error messages by giving some extra information.
+  * `connect` (from "lib/manager") now returns a boolean indicating whether the connection
+    was successful or not.
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 16 Jun 2022 09:00:00 +0200
+
+python3-orcha (0.1.11) unstable; urgency=medium
 
   * Fix internal digest key for Orcha clients that was causing an exception
     on Python versions lower or equal than 3.7.
 
- -- Javier Alonso <jalonso@teldat.com>  Thu, 19 May 2022 09:25:00 +0200
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 15 Jun 2022 15:50:00 +0200
 
 python3-orcha (0.1.10) unstable; urgency=medium
 

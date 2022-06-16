@@ -66,9 +66,13 @@ def main():
                 can handle the parsed command line options.
 
     .. versionchanged:: 0.1.11
-        * ``key`` parameter is now required, the internally generated one won't be used anymore.
-        * Orcha clients in Python <= 3.7 now have their internal digest fixed, not throwing an
+        + ``key`` parameter is now required, the internally generated one won't be used anymore.
+        + Orcha clients in Python <= 3.7 now have their internal digest fixed, not throwing an
           exception anymore.
+
+    .. versionchanged:: 0.1.12
+        + ``key`` parameter is not mandatory (again) - some plugins may not require it for
+          their basic functionality.
     """
     parser = argparse.ArgumentParser(
         description="Orcha command line utility for handling services",
@@ -92,7 +96,7 @@ def main():
         "--key",
         metavar="KEY",
         type=str,
-        required=True,
+        default=None,
         help="Authentication key used for verifying clients",
     )
     parser.add_argument("--version", action="version", version=f"orcha - {version('orcha')}")
@@ -109,13 +113,13 @@ def main():
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
     orcha.properties.port = args.port
-    orcha.properties.authkey = args.key.encode()
+    if args.key is not None:
+        orcha.properties.authkey = args.key.encode()
+        log.debug("fixing internal digest key")
+        multiprocessing.current_process().authkey = args.key.encode()
 
     for arg, value in vars(args).items():
         orcha.properties.extras[arg] = value
-
-    log.debug("fixing internal digest key")
-    multiprocessing.current_process().authkey = args.key.encode()
 
     for plugin in plugins:
         if plugin.can_handle(args.owner):
