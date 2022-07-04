@@ -81,13 +81,13 @@ class Petition(ABC):
         the ID (for equality/inequality tests) and the priority (for comparison
         tests).
 
-    .. versionchanged:: 0.2.0
+    .. versionadded:: 0.2.0
         This class now defines a :func:`terminate` which is abstract and should
         be overriden by all subclasses that inherit from :class:`Petition`. Such
         function allows defining a custom behavior when a finish message is
         received.
 
-        Warning:
+        .. warning::
             This is a breaking change - all existing projects should migrate
             their own :class:`Petition` subclasses to the new definition.
 
@@ -327,6 +327,18 @@ class SignalingPetition(Petition):
     """
 
     def terminate(self, pid: Optional[int]) -> bool:
+        """Sends the specified signal to the process and/or its parent.
+
+        Args:
+            pid (:obj:`int`): process identifier to send the signal to.
+
+        Raises:
+            ValueError: if the ``pid`` is :obj:`None`.
+
+        Returns:
+            :obj:`bool`: :obj:`True` if all children have been signaled correctly,
+                :obj:`False` otherwise.
+        """
         if pid is None:
             raise ValueError(f'Petition of type "{type(self).__name__}" requires a valid PID')
 
