@@ -25,11 +25,14 @@ This type must be recoverable from a :class:`Message` object, as petitions
 cannot be sent from clients to servers and vice versa.
 """
 import subprocess
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import total_ordering
 from queue import Queue
+from signal import SIGINT
 from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
+
+from orcha.utils.cmd import kill_proc_tree
 
 ProcT = Union[subprocess.Popen, int]
 """
@@ -78,6 +81,16 @@ class Petition(ABC):
         in subclasses declaring fields as ``compare=False``. It is only checked
         the ID (for equality/inequality tests) and the priority (for comparison
         tests).
+
+    .. versionchanged:: 0.2.0
+        This class now defines a :func:`terminate` which is abstract and should
+        be overriden by all subclasses that inherit from :class:`Petition`. Such
+        function allows defining a custom behavior when a finish message is
+        received.
+
+        Warning:
+            This is a breaking change - all existing projects should migrate
+            their own :class:`Petition` subclasses to the new definition.
 
     :see: :py:func:`field <dataclasses.field>`
     """
@@ -155,7 +168,10 @@ class Petition(ABC):
             queue.Full: if the queue has exceeded its maximum capacity and ``blocking`` is set
                         to :obj:`True`.
         """
-        self.queue.put(message, block=blocking)
+        try:
+            self.queue.put(message, block=blocking)
+        except ValueError:
+            pass
 
     def communicate_nw(self, message: Any):
         """
@@ -168,7 +184,10 @@ class Petition(ABC):
         Raises:
             queue.Full: if the queue has exceeded its maximum capacity.
         """
-        self.queue.put_nowait(message)
+        try:
+            self.queue.put_nowait(message)
+        except ValueError:
+            pass
 
     def finish(self, ret: Optional[int] = None):
         """
@@ -177,7 +196,28 @@ class Petition(ABC):
         Args:
             ret (int | None): return code of the operation, if any.
         """
-        self.queue.put(ret)
+        try:
+            self.queue.put(ret)
+        except ValueError:
+            pass
+
+    @abstractmethod
+    def terminate(self, pid: Optional[int]) -> bool:
+        """
+        Function that is called every time a finish request is received
+        for killing the process itself. One can use either the received PID, if any,
+        or a saved argument at the running class instance.
+
+        Args:
+            pid (:obj:`int` | :obj:`None`): process identifier, useful when trying to
+                signaling a process.
+
+        Returns:
+            :obj:`bool`: that indicates if the operation has been successful or not.
+
+        .. versionadded:: 0.2.0
+        """
+        ...
 
     def __eq__(self, __o: object) -> bool:
         # ensure we are comparing against our class or a subclass of ours
@@ -226,6 +266,9 @@ class EmptyPetition(Petition):
     def __init__(self):
         pass
 
+    def terminate(self, _: Optional[int]) -> bool:
+        pass
+
 
 @dataclass(init=False)
 class WatchdogPetition(Petition):
@@ -250,6 +293,42 @@ class WatchdogPetition(Petition):
     def __init__(self):
         pass
 
+    def terminate(self, _: Optional[int]) -> bool:
+        pass
+
+
+@dataclass
+class SignalingPetition(Petition):
+    """
+    :class:`Petition` that finishes the running process by sending a signal (which used
+    to be the default).
+
+    It behaves exactly the same as its parent class, the only difference is that a
+    signal is issued when a finish message is received.
+
+    One can define which :attr:`signal` to send and whether to also :attr:`kill_parent`
+    by issuing the signal to it.
+
+    .. versionadded:: 0.2.0
+    """
+
+    signal: int = field(compare=False, default=SIGINT)
+    """
+    The signal number to send to the process when finishing. Notice that the value here
+    should be valid within the host architecture the orchestrator is running on.
+    """
+
+    kill_parent: bool = field(compare=False, default=False)
+    """
+    Whether to send the specific signal to the parent also.
+    """
+
+    def terminate(self, pid: Optional[int]) -> bool:
+        if pid is None:
+            raise ValueError(f'Petition of type "{type(self).__name__}" requires a valid PID')
+
+        return kill_proc_tree(pid, self.kill_parent, self.signal)
+
 
 __all__ = [
     "ActionCallbackT",
@@ -258,4 +337,5 @@ __all__ = [
     "Petition",
     "ProcT",
     "WatchdogPetition",
+    "SignalingPetition",
 ]

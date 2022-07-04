@@ -25,19 +25,17 @@ Alongside with :class:`Manager <orcha.lib.Manager>`, it's the heart of the orche
 """
 import multiprocessing
 import random
-import signal
 import subprocess
 from queue import PriorityQueue, Queue
 from threading import Event, Lock, Thread
 from time import sleep
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import systemd.daemon as systemd
 
 from orcha import properties
 from orcha.interfaces.message import Message
 from orcha.interfaces.petition import EmptyPetition, Petition, WatchdogPetition
-from orcha.utils.cmd import kill_proc_tree
 from orcha.utils.logging_utils import get_logger
 
 log = get_logger()
@@ -232,7 +230,7 @@ class Processor:
             self._internalq = PriorityQueue()
             self._signals = Queue()
             self._threads: List[Thread] = []
-            self._petitions: Dict[int, int] = {}
+            self._petitions: Dict[int, Tuple[int, Petition]] = {}
             self._gc_event = Event()
             self._pred_lock = Lock()
             self._process_t = Thread(target=self._process)
@@ -383,7 +381,7 @@ class Processor:
         def assign_pid(proc: Union[subprocess.Popen, int]):
             pid = proc if isinstance(proc, int) else proc.pid
             log.debug('assigning pid to "%s"', pid)
-            self._petitions[p.id] = pid
+            self._petitions[p.id] = pid, p
 
         with self._pred_lock:
             if not p.condition(p):
@@ -404,10 +402,11 @@ class Processor:
         finally:
             log.debug('petition "%s" finished, triggering callbacks', p)
             self._petitions.pop(p.id, None)
-            self._gc_event.set()
 
             with self._pred_lock:
                 self.manager.on_finish(p)
+
+            self._gc_event.set()
 
     def _signal_handler(self):
         log.debug("fixing internal digest key")
@@ -439,15 +438,31 @@ class Processor:
                         log.warning('message with ID "%s" not found or not running!', m)
                         continue
 
-                    pid = self._petitions[m]
-                    kill_proc_tree(pid, including_parent=False, sig=signal.SIGINT)
-                    log.debug('sent signal to process "%d" and all of its children', pid)
+                    pid, petition = self._petitions[m]
+                    finish_t = Thread(target=self._finish, args=(m, pid, petition))
+                    finish_t.start()
+                    self._threads.append(finish_t)
         except Exception as e:
             log.fatal("unhandled exception: %s", e)
             self.running = False
             if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
+                systemd.notify(f"STATUS=Failure due to unexpected exception: {e}")
                 systemd.notify("WATCHDOG=trigger")
+
+    def _finish(self, id: Union[str, int], pid: Optional[int], p: Petition):
+        try:
+            if not p.terminate(pid):
+                raise RuntimeError(f'Failed to finish petition instance "{type(p).__name__}"')
+        except Exception as e:
+            p.communicate(f"Failed to finish petition with ID {p.id}")
+            p.communicate(str(e))
+        finally:
+            with self._pred_lock:
+                self.manager.on_finish(p)
+
+            p.finish()
+            self._petitions.pop(id, None)
+            self._gc_event.set()
 
     def _gc(self):
         try:

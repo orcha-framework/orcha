@@ -27,6 +27,7 @@ from .petition import (
     P,
     Petition,
     ProcT,
+    SignalingPetition,
     WatchdogPetition,
 )
 from .service import ServiceWrapper, register_service, start_service
@@ -42,4 +43,5 @@ __all__ = [
     "ServiceWrapper",
     "start_service",
     "WatchdogPetition",
+    "SignalingPetition",
 ]

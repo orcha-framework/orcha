@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "orcha"
-version = "0.1.12"
+version = "0.2.0"
 description = "System handler and orchestrator of multiple environments"
 authors = ["Javier Alonso <jalonso@teldat.com>"]
 
@@ -36,7 +36,6 @@ skip-string-normalization = false
 # We need to force-exclude the negated include pattern
 # so that pre-commit run --all-files does the correct thing
 # see https://github.com/psf/black/issues/1778
-#force-exclude = '^?!(chatbot/).*\.py$'
 force-exclude = 'docs/source/conf.py'
 include = 'orcha\/.*\.py$'
 exclude = 'docs/source/conf.py'

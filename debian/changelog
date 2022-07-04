@@ -1,4 +1,18 @@
-python3-orcha (0.1.12) UNRELEASED; urgency=medium
+python3-orcha (0.2.0) UNRELEASED; urgency=medium
+
+  * Petitions now support new attributes for defining how to end the process they
+    spawned. Such methods allow defining the signal that may be sent to the process,
+    whether to kill also parent process or to call a provided function that receives
+    the petition itself, for running a custom command. For that reason, two new
+    subclasses are now defined for sending a signal or running a function.
+
+  * Petition class now has an abstract method "terminate" which receives the PID
+    of the process to terminate and must be overridden by subclasses. This is a
+    breaking change, so we jumped to version 0.2.0.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 04 Jul 2022 12:00:00 +0200
+
+python3-orcha (0.1.12) unstable; urgency=medium
 
   * Key parameter is not mandatory anymore - some plugins may not require it for working.
   * Improve authentication error messages by giving some extra information.

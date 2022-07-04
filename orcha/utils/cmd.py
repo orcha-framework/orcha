@@ -103,7 +103,7 @@ def run_command(
     return ret
 
 
-def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SIGTERM):
+def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SIGTERM) -> bool:
     """
     Attempts to kill the given PID and all of its children by sending the given
     signal, if sufficient permissions.
@@ -112,6 +112,13 @@ def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SI
         pid (int): the PID to kill alongside with its children.
         including_parent (bool): whether to kill also the PID itself. Defaults to :obj:`True`.
         sig (int): the signal to send to the processes. Defaults to :attr:`signal.SIGTERM`.
+
+    Returns:
+        :obj:`bool`: :obj:`True` if the processes was successfully killed, :obj:`False` otherwise.
+
+    .. versionchanged:: 0.1.13
+        This function now returns a :obj:`bool` for indicating whether the killing
+        was successful or not.
     """
     try:
         parent = psutil.Process(pid)
@@ -119,5 +126,11 @@ def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SI
             child.send_signal(sig)
         if including_parent:
             parent.send_signal(sig)
+
+        return True
     except psutil.NoSuchProcess:
-        log.warning("error while trying to kill proccess with id %s", pid)
+        log.warning("error while trying to kill proccess with id %d", pid)
+        return False
+    except psutil.AccessDenied:
+        log.critical("orcha has no permissions for killing %d", pid)
+        return False
