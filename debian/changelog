@@ -1,4 +1,11 @@
-python3-orcha (0.2.0) UNRELEASED; urgency=medium
+python3-orcha (0.2.1) UNRELEASED; urgency=medium
+
+  * Minor fix for subclasses inheriting from SignalingPetition, which
+    didn't allow default values.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 04 Jul 2022 12:05:00 +0200
+
+python3-orcha (0.2.0) unstable; urgency=medium
 
   * Petitions now support new attributes for defining how to end the process they
     spawned. Such methods allow defining the signal that may be sent to the process,

@@ -454,8 +454,8 @@ class Processor:
             if not p.terminate(pid):
                 raise RuntimeError(f'Failed to finish petition instance "{type(p).__name__}"')
         except Exception as e:
-            p.communicate(f"Failed to finish petition with ID {p.id}")
-            p.communicate(str(e))
+            p.communicate(f"Failed to finish petition with ID {p.id}\n")
+            p.communicate(f"{e}\n")
         finally:
             with self._pred_lock:
                 self.manager.on_finish(p)

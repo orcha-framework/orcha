@@ -29,7 +29,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import total_ordering
 from queue import Queue
-from signal import SIGINT
 from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
 
 from orcha.utils.cmd import kill_proc_tree
@@ -310,15 +309,19 @@ class SignalingPetition(Petition):
     by issuing the signal to it.
 
     .. versionadded:: 0.2.0
+
+    .. versionchanged:: 0.2.1
+        Attributes do not have a default value, allowing subclasses to have also non-default
+        attributes.
     """
 
-    signal: int = field(compare=False, default=SIGINT)
+    signal: int = field(compare=False)
     """
     The signal number to send to the process when finishing. Notice that the value here
     should be valid within the host architecture the orchestrator is running on.
     """
 
-    kill_parent: bool = field(compare=False, default=False)
+    kill_parent: bool = field(compare=False)
     """
     Whether to send the specific signal to the parent also.
     """
