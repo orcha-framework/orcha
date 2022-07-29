@@ -457,9 +457,6 @@ class Processor:
             p.communicate(f"Failed to finish petition with ID {p.id}\n")
             p.communicate(f"{e}\n")
         finally:
-            with self._pred_lock:
-                self.manager.on_finish(p)
-
             p.finish()
             self._petitions.pop(id, None)
             self._gc_event.set()
