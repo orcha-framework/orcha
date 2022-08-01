@@ -27,6 +27,7 @@ cannot be sent from clients to servers and vice versa.
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import IntEnum
 from functools import total_ordering
 from queue import Queue
 from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
@@ -54,6 +55,28 @@ inherits from it.
 """
 
 
+class PetitionState(IntEnum):
+    """
+    Class that contains the logic for determining the status of a
+    petition, allowing to determine if the state is valid. For example, a
+    running petition shouldn't be run again; a cancelled petition shouldn't
+    be started, etc.
+
+    .. versionadded:: 0.2.2
+    """
+
+    PENDING = 0
+    """The petition has just been created"""
+    ENQUEUED = 1
+    """The petition is already enqueued waiting for running"""
+    RUNNING = 2
+    """The petition has been started and it's running"""
+    FINISHED = 3
+    """Petition processing has been done"""
+    CANCELLED = 4
+    """Ff the petition has been cancelled before finishing processing"""
+
+
 @total_ordering
 @dataclass
 class Petition(ABC):
@@ -71,6 +94,8 @@ class Petition(ABC):
      + :attr:`action` represents the callable that will be executed.
      + :attr:`condition` is a predicate which defines whether the petition
        can be run or not.
+     + :attr:`state` is the internal state of the petition, defined by the
+       enum :class:`PetitionState`.
 
     This class is intended to be a stub so your implementation must inherit
     from this one.
@@ -90,6 +115,12 @@ class Petition(ABC):
         .. warning::
             This is a breaking change - all existing projects should migrate
             their own :class:`Petition` subclasses to the new definition.
+
+    .. versionadded:: 0.2.2
+        Petition now have an internal state that is managed by the processor
+        that owns it (so the manager also). This internal state is intended to be
+        used for deciding if a petition should be run or not. By default, its
+        state is :obj:`PENDING <PetitionState.PENDING>`.
 
     :see: :py:func:`field <dataclasses.field>`
     """
@@ -155,6 +186,12 @@ class Petition(ABC):
 
     """
 
+    state: PetitionState = field(compare=False, init=False, default=PetitionState.PENDING)
+    """
+    Petition's state that indicates current step in the processing queue. Available
+    states are defined at :class:`PetitionState` enumerate.
+    """
+
     def communicate(self, message: Any, blocking: bool = True):
         """
         Communicates with the source process by sending a message through the internal queue.
@@ -215,8 +252,24 @@ class Petition(ABC):
             :obj:`bool`: that indicates if the operation has been successful or not.
 
         .. versionadded:: 0.2.0
+
+        .. versionchanged:: 0.2.2
+            This function now has a body which must be called always from child classes.
+            Such body ensures petition state is valid and sets the new one, which will
+            be :obj:`CANCELLED <PetitionState.CANCELLED>`.
         """
-        ...
+        if self.state in {PetitionState.FINISHED, PetitionState.PENDING}:
+            raise ValueError(
+                "Cannot terminate a petition whose state is either FINISHED or PENDING"
+            )
+
+        # if we are called, our state is now CANCELLED
+        if self.state in {PetitionState.RUNNING, PetitionState.ENQUEUED}:
+            self.state = PetitionState.CANCELLED
+        else:
+            raise AttributeError(f"Unknown petition state: {self.state}")
+
+        return True
 
     def __eq__(self, __o: object) -> bool:
         # ensure we are comparing against our class or a subclass of ours
@@ -339,7 +392,9 @@ class SignalingPetition(Petition):
             :obj:`bool`: :obj:`True` if all children have been signaled correctly,
                 :obj:`False` otherwise.
         """
-        if pid is None:
+        valid = super().terminate(pid)
+
+        if pid is None and not valid:
             raise ValueError(f'Petition of type "{type(self).__name__}" requires a valid PID')
 
         return kill_proc_tree(pid, self.kill_parent, self.signal)
@@ -353,4 +408,5 @@ __all__ = [
     "ProcT",
     "WatchdogPetition",
     "SignalingPetition",
+    "PetitionState",
 ]

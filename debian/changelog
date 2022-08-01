@@ -1,4 +1,11 @@
-python3-orcha (0.2.1) UNRELEASED; urgency=medium
+python3-orcha (0.2.2) UNRELEASED; urgency=medium
+
+  * Petitions now have an internal state which represents its status. This
+    allows cancelling a petition even if it has not been started yet.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 01 Aug 2022 11:31:00 +0200
+
+python3-orcha (0.2.1) unstable; urgency=medium
 
   * Minor fix for subclasses inheriting from SignalingPetition, which
     didn't allow default values.

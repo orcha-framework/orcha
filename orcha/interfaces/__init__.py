@@ -26,6 +26,7 @@ from .petition import (
     EmptyPetition,
     P,
     Petition,
+    PetitionState,
     ProcT,
     SignalingPetition,
     WatchdogPetition,
@@ -44,4 +45,5 @@ __all__ = [
     "start_service",
     "WatchdogPetition",
     "SignalingPetition",
+    "PetitionState",
 ]

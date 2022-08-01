@@ -35,7 +35,12 @@ import systemd.daemon as systemd
 
 from orcha import properties
 from orcha.interfaces.message import Message
-from orcha.interfaces.petition import EmptyPetition, Petition, WatchdogPetition
+from orcha.interfaces.petition import (
+    EmptyPetition,
+    Petition,
+    PetitionState,
+    WatchdogPetition,
+)
 from orcha.utils.logging_utils import get_logger
 
 log = get_logger()
@@ -183,16 +188,17 @@ class Processor:
                                                    Defaults to :obj:`None`.
         manager (:class:`Manager`, optional): manager object used for synchronization and action
                                               calling. Defaults to :obj:`None`.
+        notify_watchdog (:obj:`bool`, optional): if the service is running under systemd,
+            notify periodically (every 5 seconds) that we are alive and doing things. If there
+            is any kind of unexpected error, a watchdog trigger will be set and the service
+            will be restarted.
+
         look_ahead (:obj:`int`, optional): amount of items to look ahead when querying the queue.
             Having a value higher than 1 allows the processor to access items further in the queue
             if, for any reason, the next one is not available yet to be executed but the second
             one is (i.e.: if you define priorities based on time, allow the second item to be
             executed before the first one). Take special care with this parameter as this may
             cause starvation in processes.
-        notify_watchdog (:obj:`bool`, optional): if the service is running under systemd,
-            notify periodically (every 5 seconds) that we are alive and doing things. If there
-            is any kind of unexpected error, a watchdog trigger will be set and the service
-            will be restarted.
 
     Raises:
         ValueError: when no arguments are given and the processor has not been initialized yet.
@@ -219,18 +225,19 @@ class Processor:
             if not all((queue, finishq, manager)):
                 raise ValueError("queue & manager objects cannot be empty during init")
 
-            self.lock = Lock()
-            self.queue = queue
-            self.finishq = finishq
+            self._lock = Lock()
+            self._queue = queue
+            self._finishq = finishq
             self.manager = manager
             self.look_ahead = look_ahead
             self.running = True
             self.notify_watchdog = notify_watchdog
+            """Whether to notify SystemD Watchdog periodically to inform about our status"""
 
             self._internalq = PriorityQueue()
             self._signals = Queue()
             self._threads: List[Thread] = []
-            self._petitions: Dict[int, Tuple[int, Petition]] = {}
+            self._petitions: Dict[Optional[int], Tuple[int, Petition]] = {}
             self._gc_event = Event()
             self._pred_lock = Lock()
             self._process_t = Thread(target=self._process)
@@ -255,15 +262,28 @@ class Processor:
 
     @running.setter
     def running(self, v: bool):
-        with self.lock:
+        with self._lock:
             self._running = v
 
-    def exists(self, m: Union[Message, int, str]) -> bool:
+    @property
+    def look_ahead(self) -> int:
+        """Amount of items to look ahead when querying the queue"""
+        return self._look_ahead
+
+    @look_ahead.setter
+    def look_ahead(self, v: int):
+        with self._lock:
+            self._look_ahead = v
+
+    def is_running(self, m: Union[Message, int, str]) -> bool:
         """
         Checks if the given message is running or not.
 
         .. versionchanged:: 0.1.6
            Attribute :attr:`m` now supports a :obj:`str` as ID.
+
+        .. versionadded:: 0.2.2
+            Renamed from :func:`exists` to :func:`is_running`.
 
         Args:
             m (:obj:`Message` | :obj:`int` | :obj:`str`]): the message to check or its
@@ -286,7 +306,7 @@ class Processor:
         Args:
             m (Message): the message to enqueue
         """
-        self.queue.put(m)
+        self._queue.put(m)
 
     def finish(self, m: Union[Message, int, str]):
         """Sets a finish signal for the given message.
@@ -302,7 +322,7 @@ class Processor:
             m = m.id
 
         log.debug("received petition for finish message with ID %s", m)
-        self.finishq.put(m)
+        self._finishq.put(m)
 
     def _process(self):
         log.debug("fixing internal digest key")
@@ -311,15 +331,15 @@ class Processor:
         try:
             while self.running:
                 log.debug("waiting for message...")
-                m = self.queue.get()
+                m = self._queue.get()
                 if m is not None:
                     log.debug('converting message "%s" into a petition', m)
                     p: Optional[Petition] = self.manager.convert_to_petition(m)
                     if p is not None:
                         log.debug("> %s", p)
-                        if self.exists(p.id):
-                            log.warning("received message (%s) already exists", p)
-                            p.queue.put(f'message with ID "{p.id}" already exists\n')
+                        if self.is_running(p.id):
+                            log.warning("received message (%s) already running", p)
+                            p.queue.put(f'message with ID "{p.id}" is already running\n')
                             p.queue.put(1)
                             continue
                     else:
@@ -327,6 +347,8 @@ class Processor:
                         continue
                 else:
                     p = EmptyPetition()
+                p.state = PetitionState.ENQUEUED
+                self._petitions[p.id] = None, p
                 self._internalq.put(p)
         except Exception as e:
             log.fatal("unhandled exception: %s", e)
@@ -415,7 +437,7 @@ class Processor:
         try:
             while self.running:
                 log.debug("waiting for finish message...")
-                m = self.finishq.get()
+                m = self._finishq.get()
                 self._signals.put(m)
         except Exception as e:
             log.fatal("unhandled exception: %s", e)
@@ -492,8 +514,8 @@ class Processor:
         try:
             log.info("finishing processor")
             self.running = False
-            self.queue.put(None)
-            self.finishq.put(None)
+            self._queue.put(None)
+            self._finishq.put(None)
             self._gc_event.set()
 
             log.info("waiting for pending processes...")

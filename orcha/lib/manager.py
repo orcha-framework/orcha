@@ -29,8 +29,7 @@ from warnings import warn
 
 from orcha import properties
 from orcha.exceptions import ManagerShutdownError
-from orcha.interfaces import Petition
-from orcha.interfaces.message import Message
+from orcha.interfaces import Message, Petition, PetitionState
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
@@ -196,6 +195,17 @@ class Manager(ABC):
             queue = queue or _queue
             finish_queue = finish_queue or _finish_queue
             self.processor = Processor(queue, finish_queue, self, look_ahead, notify_watchdog)
+            """
+            A :class:`Processor <orcha.lib.Processor>` object which references the singleton
+            instance of the processor itself, allowing access to the exposed parameters
+            of it.
+
+            .. warning::
+                Notice that :class:`Processor <orcha.lib.Processor>` is one of the fundamentals
+                that defines the behavior of the orchestrator itself. There are some exposed
+                attributes that can be accessed, but modify them with care as it may broke
+                orchestrator behavior.
+            """
 
         log.debug("manager created - running setup...")
         try:
@@ -557,6 +567,7 @@ class Manager(ABC):
         if not self._is_client:
             with self._set_lock:
                 self._enqueued_messages.add(petition.id)
+                petition.state = PetitionState.RUNNING
 
     @abstractmethod
     def on_finish(self, petition: Petition) -> bool:
@@ -616,6 +627,7 @@ class Manager(ABC):
             if self.is_running(petition):
                 with self._set_lock:
                     self._enqueued_messages.remove(petition.id)
+                    petition.state = PetitionState.FINISHED
                 return True
             return False
         return False
