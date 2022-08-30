@@ -20,6 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Command line utilities that can be used by subprojects or plugins"""
+from __future__ import annotations
+
 import shlex
 import signal
 import subprocess
@@ -130,7 +132,7 @@ def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SI
         return True
     except psutil.NoSuchProcess:
         log.warning("error while trying to kill proccess with id %d", pid)
-        return False
+        return True
     except psutil.AccessDenied:
         log.critical("orcha has no permissions for killing %d", pid)
         return False

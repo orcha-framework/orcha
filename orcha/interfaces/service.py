@@ -20,8 +20,11 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Helper module for creating background services and foreground ones"""
+from __future__ import annotations
+
 import logging
 import signal
+import typing
 from dataclasses import dataclass, field
 
 # noinspection PyCompatibility
@@ -34,8 +37,10 @@ import daemon.pidfile
 import systemd.daemon
 from daemon import DaemonContext
 
-from orcha.lib.manager import Manager
 from orcha.utils.logging_utils import get_logger
+
+if typing.TYPE_CHECKING:
+    from orcha.lib import Manager
 
 
 @dataclass(frozen=True)

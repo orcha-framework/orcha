@@ -7,6 +7,8 @@
 # This code adds a wrapper to AutoProxy if it is missing the
 # new argument.
 """Monkeypatches an existing bug with the AutoProxy class"""
+from __future__ import annotations
+
 import sys
 from functools import wraps
 from inspect import signature

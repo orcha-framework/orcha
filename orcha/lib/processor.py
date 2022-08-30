@@ -23,12 +23,14 @@
 The class :class:`Processor` is responsible for handing queues, objects and petitions.
 Alongside with :class:`Manager <orcha.lib.Manager>`, it's the heart of the orchestrator.
 """
+from __future__ import annotations
+
 import multiprocessing
 import random
 import subprocess
+import typing
 from queue import PriorityQueue, Queue
 from threading import Event, Lock, Thread
-from time import sleep
 from typing import Dict, List, Optional, Tuple, Union
 
 import systemd.daemon as systemd
@@ -42,6 +44,9 @@ from orcha.interfaces.petition import (
     WatchdogPetition,
 )
 from orcha.utils.logging_utils import get_logger
+
+if typing.TYPE_CHECKING:
+    from orcha.lib import Manager
 
 log = get_logger()
 
@@ -217,7 +222,7 @@ class Processor:
         self,
         queue: multiprocessing.Queue = None,
         finishq: multiprocessing.Queue = None,
-        manager=None,
+        manager: Optional[Manager] = None,
         look_ahead: int = 1,
         notify_watchdog=False,
     ):
@@ -230,6 +235,7 @@ class Processor:
             self._finishq = finishq
             self.manager = manager
             self.look_ahead = look_ahead
+            self._finished = Event()
             self.running = True
             self.notify_watchdog = notify_watchdog
             """Whether to notify SystemD Watchdog periodically to inform about our status"""
@@ -245,25 +251,24 @@ class Processor:
             self._finished_t = Thread(target=self._signal_handler)
             self._signal_t = Thread(target=self._internal_signal_handler)
             self._gc_t = Thread(target=self._gc)
-            self._wd_t = Thread(target=self._notify_watchdog)
             self._process_t.start()
             self._internal_t.start()
             self._finished_t.start()
             self._signal_t.start()
             self._gc_t.start()
-            if self.notify_watchdog:
-                self._wd_t.start()
             self.__must_init__ = False
 
     @property
     def running(self) -> bool:
         """Whether if the current processor is running or not"""
-        return self._running
+        return not self._finished.is_set()
 
     @running.setter
     def running(self, v: bool):
-        with self._lock:
-            self._running = v
+        if v:
+            self._finished.clear()
+        else:
+            self._finished.set()
 
     @property
     def look_ahead(self) -> int:
@@ -274,6 +279,21 @@ class Processor:
     def look_ahead(self, v: int):
         with self._lock:
             self._look_ahead = v
+
+    def wait(self, n: Optional[float] = None) -> bool:
+        """Waits the specified amount of time (in seconds) or until
+        the main process is done (it is, until :attr:`running` returns
+        :obj:`False`), the default.
+
+        .. versionadded:: 0.2.3
+
+        Args:
+            n (:obj:`float`, optional): time to wait, in seconds. Defaults to :obj:`None`.
+
+        Returns:
+            :obj:`bool`: the :attr:`running` value after the given time has passed.
+        """
+        return self._finished.wait(n)
 
     def is_running(self, m: Union[Message, int, str]) -> bool:
         """
@@ -376,6 +396,9 @@ class Processor:
                     elif self.notify_watchdog and isinstance(p, WatchdogPetition):
                         log.debug("received watchdog request [WD is enabled for this instance]")
                         systemd.notify("WATCHDOG=1")
+                        # if there is a queue, we can finish the petition
+                        if p.queue is not None:
+                            p.finish(0)
 
                     if i > self._internalq.qsize():
                         break
@@ -387,7 +410,7 @@ class Processor:
                     self._threads.append(launch_t)
 
                 if not empty:
-                    sleep(random.uniform(0.5, 5))
+                    self.wait(random.uniform(0.5, 5))
             log.debug("internal process handler finished")
 
         except Exception as e:
@@ -498,11 +521,6 @@ class Processor:
             if self.notify_watchdog:
                 systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
                 systemd.notify("WATCHDOG=trigger")
-
-    def _notify_watchdog(self):
-        while self.running and self.notify_watchdog:
-            self._internalq.put(WatchdogPetition())
-            sleep(5)
 
     def shutdown(self):
         """

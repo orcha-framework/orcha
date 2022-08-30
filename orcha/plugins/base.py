@@ -20,12 +20,12 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Base plugin which all plugins must inherit from"""
+from __future__ import annotations
+
 import argparse
-import importlib
-import pkgutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Type, TypeVar
+from typing import Type, TypeVar
 
 from ..utils.logging_utils import get_logger
 
@@ -199,42 +199,4 @@ class BasePlugin(ABC):
         ...
 
 
-def query_plugins() -> List[Type[B]]:
-    """
-    Query all installed plugins on the system. Notice that plugins must start with the
-    prefix ``orcha_`` and must export an object with name ``plugin`` which holds a reference
-    to a class inheriting from :class:`BasePlugin`.
-
-    Returns:
-        list[BasePlugin]: a dictionary whose keys are module names and the value is
-                               the module itself.
-    """
-    discovered_plugins = {
-        name: importlib.import_module(name)
-        for _, name, _ in pkgutil.iter_modules()
-        if name.startswith("orcha_")
-    }
-    plugins = []
-    for plugin, mod in discovered_plugins.items():
-        pl: Type[B] = getattr(mod, "plugin", None)
-        if pl is None:
-            log.warning(
-                'invalid plugin specified for "%s". '
-                "Is there a plugin export class defined in __init__?",
-                plugin,
-            )
-            continue
-
-        if not issubclass(pl, BasePlugin):
-            log.warning(
-                'invalid class "%s" found when loading plugin "%s" - not a "BasePlugin" subclass',
-                pl,
-                plugin,
-            )
-            continue
-        plugins.append(pl)
-
-    return plugins
-
-
-__all__ = ["BasePlugin", "B", "query_plugins"]
+__all__ = ["BasePlugin", "B"]

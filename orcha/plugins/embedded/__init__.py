@@ -1,6 +1,6 @@
 #                                   MIT License
 #
-#              Copyright (c) 2021 Javier Alonso <jalonso@teldat.com>
+#              Copyright (c) 2022 Javier Alonso <jalonso@teldat.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to deal
@@ -19,32 +19,13 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Multiple package utilities used across Orcha environment"""
-from __future__ import annotations
+"""Set of embedded plugins that are part of the orchestrator"""
 
-import sys
+from .watchdog import WatchdogPlugin
 
-# noinspection PyCompatibility
-if sys.version_info >= (3, 8):
-    from importlib.metadata import version as _version
-else:
-    from pkg_resources import get_distribution
+PLUGIN_LIST = (WatchdogPlugin,)
 
-    def _version(pkg):
-        return get_distribution(pkg).version
-
-
-def version(package: str = "orcha") -> str:
-    """
-    Safely returns the version for an installed package on the system.
-
-    Args:
-        package (str): the package to get its version. Defaults to "orcha".
-
-    Returns:
-        str: package version
-    """
-    return _version(package)
-
-
-__all__ = ["version"]
+__all__ = [
+    "WatchdogPlugin",
+    "PLUGIN_LIST",
+]

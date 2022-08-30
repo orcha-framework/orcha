@@ -24,6 +24,6 @@ from .bin import *
 from .exceptions import *
 from .interfaces import *
 from .lib import *
-from .plugins.base import *
+from .plugins import *
 from .properties import *
 from .utils import *

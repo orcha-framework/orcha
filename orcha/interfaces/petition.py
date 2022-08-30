@@ -24,6 +24,8 @@
 This type must be recoverable from a :class:`Message` object, as petitions
 cannot be sent from clients to servers and vice versa.
 """
+from __future__ import annotations
+
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -342,8 +344,8 @@ class WatchdogPetition(Petition):
     action = None
     condition = None
 
-    def __init__(self):
-        pass
+    def __init__(self, queue: Optional[Queue] = None):
+        self.queue = queue
 
     def terminate(self, _: Optional[int]) -> bool:
         pass

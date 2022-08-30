@@ -1,0 +1,9 @@
+[Unit]
+Description=Watchdog timer for %i Orcha service
+BindsTo=orcha-%i.service
+
+[Timer]
+OnCalendar=*-*-* *:*:00,30
+
+[Install]
+WantedBy=timers.target

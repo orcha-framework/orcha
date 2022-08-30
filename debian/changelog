@@ -1,4 +1,12 @@
-python3-orcha (0.2.2) UNRELEASED; urgency=medium
+python3-orcha (0.2.3) UNRELEASED; urgency=medium
+
+  * Orcha has now native support for SystemD watchdog timers.
+  * Installation now deploys a template service that should be used by
+    plugins (when running in SystemD mode) for setting the watchdog.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 30 Aug 2022 12:30:00 +0200
+
+python3-orcha (0.2.2) unstable; urgency=medium
 
   * Petitions now have an internal state which represents its status. This
     allows cancelling a petition even if it has not been started yet.

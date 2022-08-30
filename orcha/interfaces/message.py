@@ -22,6 +22,8 @@
 """
 :class:`Message` specifies the message structure that will be accepted by the server.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Union
 

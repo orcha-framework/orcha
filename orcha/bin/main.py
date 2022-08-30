@@ -99,6 +99,12 @@ def main():
         default=None,
         help="Authentication key used for verifying clients",
     )
+    parser.add_argument(
+        "--systemd",
+        action="store_true",
+        help="Inform the process we are running as a SystemD service, so we should "
+        "notify regularly to the control group about our status.",
+    )
     parser.add_argument("--version", action="version", version=f"orcha - {version('orcha')}")
     subparsers = parser.add_subparsers(
         title="available commands", required=True, metavar="command"
@@ -113,6 +119,7 @@ def main():
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
     orcha.properties.port = args.port
+    orcha.properties.systemd = args.systemd
     if args.key is not None:
         orcha.properties.authkey = args.key.encode()
         log.debug("fixing internal digest key")

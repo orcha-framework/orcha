@@ -20,6 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Manager module containing the :class:`Manager`"""
+from __future__ import annotations
+
 import multiprocessing
 from abc import ABC, abstractmethod
 from multiprocessing.managers import SyncManager
@@ -29,7 +31,7 @@ from warnings import warn
 
 from orcha import properties
 from orcha.exceptions import ManagerShutdownError
-from orcha.interfaces import Message, Petition, PetitionState
+from orcha.interfaces import Message, Petition, PetitionState, WatchdogPetition
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
@@ -44,6 +46,11 @@ _queue = multiprocessing.Queue()
 # possible Processor signal queue - placed here due to inheritance reasons
 # in multiprocessing
 _finish_queue = multiprocessing.Queue()
+
+# set of restricted IDs that cannot be used when sending messages
+_restricted_ids = {
+    r"watchdog",
+}
 
 
 class Manager(ABC):
@@ -328,8 +335,13 @@ class Manager(ABC):
 
             if not self._is_client:
                 log.debug("finishing manager")
-                self.manager.shutdown()
-                self.manager.join()  # pylint: disable=no-member
+                try:
+                    self.manager.shutdown()
+                except AttributeError:
+                    # ignore AttributeError errors
+                    pass
+                # wait at most 60 seconds before considering the manager done
+                self.manager.join(timeout=60.0)  # pylint: disable=no-member
 
             log.debug("parent handler finished")
         except Exception as e:
@@ -726,4 +738,117 @@ class ClientManager(Manager):
         raise NotImplementedError()
 
 
-__all__ = ["Manager", "ClientManager"]
+class WatchdogManager(Manager):
+    """Abstract manager that is used when working with orchestrators that support
+    SystemD watchdogs. This manager takes care of creating :class:`WatchdogPetition`
+    when a message with the expected ID is received. Later on, the :class:`Processor`
+    will take care of handling the watchdog request.
+
+    .. versionadded:: 0.2.3
+    """
+
+    _WATCHDOG_ID = r"watchdog"
+
+    # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
+    def send_watchdog(self, queue: Optional[Queue] = None):
+        """Sends a watchdog request when acting as a client, for ensuring correct
+        behavior of the Orcha server. This method is currently being used by embedded
+        plugin :obj:`WatchdogPlugin <orcha.plugins.WatchdogPlugin>`, which answers
+        a SystemD timer when requested and sends a :class:`WatchdogPetition` to the server.
+
+        .. versionadded:: 0.2.3
+
+        Args:
+            queue (:obj:`Queue`): proxied queue in which orchestrator messages will be put.
+        """
+        ...
+
+    def _add_message(self, m: Message):
+        if m.id == self._WATCHDOG_ID:
+            raise ValueError(
+                f'Message uses restricted ID "{self._WATCHDOG_ID}" - use "send_watchdog" instead'
+            )
+
+        return super()._add_message(m)
+
+    def _finish_message(self, m: Union[Message, int, str]):
+        if m.id == self._WATCHDOG_ID:
+            raise ValueError(f'Cannot finish message with restricted ID "{self._WATCHDOG_ID}"')
+
+        return super()._finish_message(m)
+
+    def _send_watchdog(self, queue: Optional[Queue] = None):
+        if not self._shutdown.value:
+            m = Message(id=r"watchdog", extras={"queue": queue})
+            return self.processor.enqueue(m)
+
+        log.debug("we're off - watchdog petition not accepted")
+        raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
+
+    def setup(self):
+        super().setup()
+
+        watchdog_fn = None if self._is_client else self._send_watchdog
+        self.register("send_watchdog", watchdog_fn)
+
+    def convert_to_petition(self, m: Message) -> Optional[Petition]:
+        if m.id == self._WATCHDOG_ID:
+            return WatchdogPetition(m.extras["queue"])
+
+        return None
+
+
+class WatchdogClientManager(WatchdogManager, ClientManager):
+    """
+    Simple :class:`WatchdogManager` that is intended to be used by clients, defining the
+    expected common behavior of this kind of managers plus adding support for sending
+    watchdog messages.
+
+    By default, it only takes the three main arguments: ``listen_address``, ``port`` and
+    ``auth_key``. The rest of the params are directly fulfilled and leveraged to the parent's
+    constructor.
+
+    In addition, the required abstract methods are directly overridden with no further action
+    rather than throwing a :class:`NotImplementedError`.
+
+    Note:
+        This class defines no additional behavior rather than the basic one. Actually, it is
+        exactly the same as implementing your own one as follows::
+
+            from orcha.lib import ClientManager, WatchdogManager
+
+            class WatchdogClientManager(WatchdogManager, ClientManager):
+                ...
+
+        The main point is that as all clients should have the behavior above a generic base
+        class is given, so you can define as many clients as you want as simple as doing::
+
+            from orcha.lib import WatchdogClientManager
+
+            class MyClient(WatchdogClientManager): pass
+            class MyOtherClient(WatchdogClientManager): pass
+            ...
+
+        and define, if necessary, your own behaviors depending on parameters, attributes, etc.
+
+    .. versionadded:: 0.2.3
+
+    Args:
+        listen_address (:obj:`str`, optional): address used when declaring a
+                :class:`Manager <multiprocessing.managers.BaseManager>`
+                object. Defaults to
+                :attr:`listen_address <orcha.properties.listen_address>`.
+        port (:obj:`int`, optional): port used when declaring a
+                :class:`Manager <multiprocessing.managers.BaseManager>`
+                object. Defaults to
+                :attr:`port <orcha.properties.port>`.
+        auth_key (:obj:`bytes`, optional): authentication key used when declaring a
+                :class:`Manager <multiprocessing.managers.BaseManager>`
+                object. Defaults to
+                :attr:`authkey <orcha.properties.authkey>`.
+    """
+
+    ...
+
+
+__all__ = ["Manager", "ClientManager", "WatchdogManager", "WatchdogClientManager"]

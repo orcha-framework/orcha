@@ -20,10 +20,13 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Embedded plugin for listing all installed plugins on the system"""
+from __future__ import annotations
+
 import argparse
 
-from ..utils.packages import version
-from .base import *
+from ..utils import version
+from .base import BasePlugin
+from .utils import query_plugins
 
 __version__ = "0.0.1"
 

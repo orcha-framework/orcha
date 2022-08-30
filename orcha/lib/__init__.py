@@ -42,7 +42,7 @@ Note:
 --------
 """
 
-from .manager import ClientManager, Manager
+from .manager import ClientManager, Manager, WatchdogClientManager, WatchdogManager
 from .processor import Processor
 
-__all__ = ["Manager", "Processor", "ClientManager"]
+__all__ = ["Manager", "Processor", "ClientManager", "WatchdogManager", "WatchdogClientManager"]

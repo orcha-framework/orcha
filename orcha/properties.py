@@ -33,6 +33,8 @@ One can either opt in for manually defining these attributes or leverage them
 to the :class:`Manager <orcha.lib.manager.Manager>` class or the entry points
 of the subclasses.
 """
+from __future__ import annotations
+
 from typing import Optional
 
 listen_address: str = "127.0.0.1"
@@ -65,6 +67,15 @@ from the current process.
 :see: :py:class:`SyncManager <multiprocessing.managers.SyncManager>`
 :see also: + :py:attr:`authkey <multiprocessing.Process.authkey>`
            + :py:func:`current_process <multiprocessing.current_process>`
+"""
+
+systemd: bool = False
+"""
+Whether if the orchestrator is running as a SystemD service or not. This is not
+detected but inherited from CLI arguments, so one can decide whether to use all
+SystemD features or not when running Orcha.
+
+.. versionadded:: 0.2.3
 """
 
 extras = {}
