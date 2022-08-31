@@ -1,4 +1,10 @@
-python3-orcha (0.2.4) UNRELEASED; urgency=medium
+python3-orcha (0.2.4-2) UNRELEASED; urgency=high
+
+  * Fix an issue with watchdog embedded plugin.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 31 Aug 2022 10:30:00 +0200
+
+python3-orcha (0.2.4) unstable; urgency=medium
 
   * Move watchdog logic to manager so processor is petition independent while
     running.

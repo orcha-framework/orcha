@@ -335,21 +335,6 @@ class EmptyPetition(Petition):
         pass
 
 
-def watchdog_action(_, p: WatchdogPetition):
-    """Sends a watchdog message to SystemD based on given petition. This
-    function calls no callback.
-
-    Args:
-        p (:class:`WatchdogPetition`): petition that requested the watchdog.
-    """
-    if p.notify_watchdog:
-        systemd.notify(r"WATCHDOG=1")
-        if p.queue is not None:
-            p.finish(0)
-    else:
-        p.finish(errno.EPERM)
-
-
 @dataclass(init=False)
 class WatchdogPetition(Petition):
     """
@@ -374,11 +359,24 @@ class WatchdogPetition(Petition):
     queue = None
     # We always satisfy the condition
     condition = lambda *_: True  # noqa: E731
-    action = watchdog_action
 
     def __init__(self, notify_watchdog: bool, queue: Optional[Queue] = None):
         self.notify_watchdog = notify_watchdog
         self.queue = queue
+
+    # pylint: disable=method-hidden ; actually it is not
+    def action(self, *_):
+        """Sends a watchdog message to SystemD based on given petition. This
+        function calls no callback.
+
+        .. versionadded:: 0.2.4-2
+        """
+        if self.notify_watchdog:
+            systemd.notify(r"WATCHDOG=1")
+            if self.queue is not None:
+                self.finish(0)
+        else:
+            self.finish(errno.EPERM)
 
     def terminate(self, _: Optional[int]) -> bool:
         pass

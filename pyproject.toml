@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "orcha"
-version = "0.2.4-1"
+version = "0.2.4-2"
 description = "System handler and orchestrator of multiple environments"
 authors = ["Javier Alonso <jalonso@teldat.com>"]
 

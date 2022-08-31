@@ -823,7 +823,7 @@ class WatchdogManager(Manager):
         return None
 
 
-class WatchdogClientManager(WatchdogManager, ClientManager):
+class WatchdogClientManager(ClientManager, WatchdogManager):
     """
     Simple :class:`WatchdogManager` that is intended to be used by clients, defining the
     expected common behavior of this kind of managers plus adding support for sending
