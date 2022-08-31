@@ -182,7 +182,7 @@ class Manager(ABC):
         finish_queue: Queue = None,
         is_client: bool = False,
         look_ahead: int = 1,
-        notify_watchdog: bool = False,
+        notify_watchdog: bool = properties.systemd,
     ):
         self.manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         """
@@ -749,6 +749,31 @@ class WatchdogManager(Manager):
 
     _WATCHDOG_ID = r"watchdog"
 
+    def __init__(
+        self,
+        listen_address: str = properties.listen_address,
+        port: int = properties.port,
+        auth_key: bytes = properties.authkey,
+        create_processor: bool = True,
+        queue: Queue = None,
+        finish_queue: Queue = None,
+        is_client: bool = False,
+        look_ahead: int = 1,
+        notify_watchdog: bool = properties.systemd,
+    ):
+        self.notify_watchdog = notify_watchdog
+        super().__init__(
+            listen_address,
+            port,
+            auth_key,
+            create_processor,
+            queue,
+            finish_queue,
+            is_client,
+            look_ahead,
+            notify_watchdog,
+        )
+
     # pylint: disable=no-self-use ; method is a stub, overwritten by "setup()"
     def send_watchdog(self, queue: Optional[Queue] = None):
         """Sends a watchdog request when acting as a client, for ensuring correct
@@ -793,7 +818,7 @@ class WatchdogManager(Manager):
 
     def convert_to_petition(self, m: Message) -> Optional[Petition]:
         if m.id == self._WATCHDOG_ID:
-            return WatchdogPetition(m.extras["queue"])
+            return WatchdogPetition(notify_watchdog=self.notify_watchdog, queue=m.extras["queue"])
 
         return None
 

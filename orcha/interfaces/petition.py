@@ -26,13 +26,16 @@ cannot be sent from clients to servers and vice versa.
 """
 from __future__ import annotations
 
+import errno
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import total_ordering
 from queue import Queue
-from typing import Any, Callable, NoReturn, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Optional, Type, TypeVar, Union
+
+import systemd.daemon as systemd
 
 from orcha.utils.cmd import kill_proc_tree
 
@@ -44,10 +47,14 @@ the process PID.
 :see: :py:class:`subprocess.Popen`
 """
 
-ActionCallbackT = Callable[[ProcT], NoReturn]
+ActionCallbackT = Callable[[ProcT], None]
 """
 Function with the form ``(ProcT) -> None`` that is called when the petition
 should run. It refers directly the action that represents this petition.
+
+.. versionchanged:: 0.2.4
+    :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
+    :obj:`None`, as the function does return but no value.
 """
 
 P = TypeVar("P", bound="Petition")
@@ -76,7 +83,7 @@ class PetitionState(IntEnum):
     FINISHED = 3
     """Petition processing has been done"""
     CANCELLED = 4
-    """Ff the petition has been cancelled before finishing processing"""
+    """If the petition has been cancelled before finishing processing"""
 
 
 @total_ordering
@@ -159,7 +166,7 @@ class Petition(ABC):
         initialized: :attr:`Manager.manager <orcha.lib.manager.Manager.manager>`.
     """
 
-    action: Callable[[ActionCallbackT, Type[P]], NoReturn] = field(compare=False, repr=False)
+    action: Callable[[ActionCallbackT, Type[P]], None] = field(compare=False, repr=False)
     """
     The action to be called when the petition is pop from the queue. It is a function with the
     form::
@@ -172,6 +179,10 @@ class Petition(ABC):
 
     As a :class:`Petition` is built from :class:`Message`, use the :attr:`Message.extras` for
     defining how the petition will behave when :attr:`action` is called.
+
+    .. versionchanged:: 0.2.4
+        :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
+        :obj:`None`, as the function does return but no value.
     """
 
     condition: Callable[[Type[P]], bool] = field(compare=False, repr=False)
@@ -324,6 +335,21 @@ class EmptyPetition(Petition):
         pass
 
 
+def watchdog_action(_, p: WatchdogPetition):
+    """Sends a watchdog message to SystemD based on given petition. This
+    function calls no callback.
+
+    Args:
+        p (:class:`WatchdogPetition`): petition that requested the watchdog.
+    """
+    if p.notify_watchdog:
+        systemd.notify(r"WATCHDOG=1")
+        if p.queue is not None:
+            p.finish(0)
+    else:
+        p.finish(errno.EPERM)
+
+
 @dataclass(init=False)
 class WatchdogPetition(Petition):
     """
@@ -336,15 +362,22 @@ class WatchdogPetition(Petition):
         be careful whenever you place a custom petition with higher priority: do not
         use ``float("-inf")`` as an expression, try keeping your priorities above ``0``
         an go as high as you want.
+
+    .. versionchanged:: 0.2.4
+        :class:`WatchdogPetition` now takes care of notifying SystemD watchdog on its
+        :attr:`action <orcha.interfaces.WatchdogPetition.action>` as well as finishing
+        the listening client when done.
     """
 
     priority = float("-inf")
-    id = -1
+    id = r"watchdog"
     queue = None
-    action = None
-    condition = None
+    # We always satisfy the condition
+    condition = lambda *_: True  # noqa: E731
+    action = watchdog_action
 
-    def __init__(self, queue: Optional[Queue] = None):
+    def __init__(self, notify_watchdog: bool, queue: Optional[Queue] = None):
+        self.notify_watchdog = notify_watchdog
         self.queue = queue
 
     def terminate(self, _: Optional[int]) -> bool:

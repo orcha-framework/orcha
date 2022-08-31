@@ -1,4 +1,11 @@
-python3-orcha (0.2.3) UNRELEASED; urgency=medium
+python3-orcha (0.2.4) UNRELEASED; urgency=medium
+
+  * Move watchdog logic to manager so processor is petition independent while
+    running.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 31 Aug 2022 09:30:00 +0200
+
+python3-orcha (0.2.3) unstable; urgency=medium
 
   * Orcha has now native support for SystemD watchdog timers.
   * Installation now deploys a template service that should be used by
