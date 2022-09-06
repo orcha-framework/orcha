@@ -31,7 +31,13 @@ from warnings import warn
 
 from orcha import properties
 from orcha.exceptions import ManagerShutdownError
-from orcha.interfaces import Message, Petition, PetitionState, WatchdogPetition
+from orcha.interfaces import (
+    BROKEN_STATES,
+    Message,
+    Petition,
+    PetitionState,
+    WatchdogPetition,
+)
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
@@ -543,7 +549,7 @@ class Manager(ABC):
         ...
 
     @abstractmethod
-    def on_start(self, petition: Petition):
+    def on_start(self, petition: Petition) -> bool:
         """Action to be run when a :class:`Petition <orcha.interfaces.Petition>` has started
         its execution, in order to manage how the manager will react to other petitions when
         enqueued (i.e.: to have a control on the execution, how many items are running, etc.).
@@ -565,7 +571,7 @@ class Manager(ABC):
                 class ServerManager(Manager):
                     ...
 
-                    def on_start(self, *args):
+                    def on_start(self, *args) -> bool:
                         super().on_start(*args)
 
             In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
@@ -573,13 +579,30 @@ class Manager(ABC):
             and that the operations done are minimal, as other processes will have to wait until
             this call is done.
 
+        Important:
+            Since version ``0.2.5`` this function shall return a boolean value indicating
+            if the :attr:`petition status <orcha.interfaces.Petition.status>` is healthy
+            or not. If this function raises an exception, automatically the
+            :attr:`petition status <orcha.interfaces.Petition.status>` will be set to
+            :attr:`PetitionStatus.BROKEN <orcha.interfaces.PetitionStatus.BROKEN>`.
+
+            When an :func:`on_start` method fails (``healthy = False``), the
+            :attr:`action <orcha.interfaces.Petition.action>` call is skipped and directly
+            :func:`on_finish` is called, in which you may handle that
+            :attr:`BROKEN <orcha.interfaces.PetitionStatus.BROKEN>` status
+
         Args:
             petition (Petition): the petition that has just started
+
+        Returns:
+            :obj:`bool`: :obj:`True` if the start process went fine, :obj:`False` otherwise.
         """
         if not self._is_client:
             with self._set_lock:
                 self._enqueued_messages.add(petition.id)
                 petition.state = PetitionState.RUNNING
+            return True
+        return False
 
     @abstractmethod
     def on_finish(self, petition: Petition) -> bool:
@@ -639,7 +662,8 @@ class Manager(ABC):
             if self.is_running(petition):
                 with self._set_lock:
                     self._enqueued_messages.remove(petition.id)
-                    petition.state = PetitionState.FINISHED
+                    if petition.state not in BROKEN_STATES:
+                        petition.state = PetitionState.FINISHED
                 return True
             return False
         return False

@@ -84,6 +84,42 @@ class PetitionState(IntEnum):
     """Petition processing has been done"""
     CANCELLED = 4
     """If the petition has been cancelled before finishing processing"""
+    BROKEN = 5
+    """The petition failed to initialize or got an unexpected error while running
+
+    .. versionadded:: 0.2.5
+    """
+
+
+STOPPED_STATES = {
+    PetitionState.PENDING,
+    PetitionState.FINISHED,
+    PetitionState.BROKEN,
+}
+"""Set of states in which :class:`petitions <orcha.interfaces.Petition>` are
+considered to be stopped, it is, not running or in a pre-running state.
+
+.. versionadded:: 0.2.5
+"""
+
+RUNNING_STATES = {
+    PetitionState.RUNNING,
+    PetitionState.ENQUEUED,
+}
+"""Set of states in which :class:`petitions <orcha.interfaces.Petition>` are
+considered to be running, it is, already enqueued or running.
+
+.. versionadded:: 0.2.5
+"""
+
+BROKEN_STATES = {
+    PetitionState.BROKEN,
+}
+"""Set of states in which :class:`petitions <orcha.interfaces.Petition>` are
+considered to be broken, it is, failed during execution, start, etc.
+
+.. versionadded:: 0.2.5
+"""
 
 
 @total_ordering
@@ -271,13 +307,13 @@ class Petition(ABC):
             Such body ensures petition state is valid and sets the new one, which will
             be :obj:`CANCELLED <PetitionState.CANCELLED>`.
         """
-        if self.state in {PetitionState.FINISHED, PetitionState.PENDING}:
+        if self.state in STOPPED_STATES:
             raise ValueError(
-                "Cannot terminate a petition whose state is either FINISHED or PENDING"
+                "Cannot terminate a petition whose state is either FINISHED, PENDING or BROKEN"
             )
 
         # if we are called, our state is now CANCELLED
-        if self.state in {PetitionState.RUNNING, PetitionState.ENQUEUED}:
+        if self.state in RUNNING_STATES:
             self.state = PetitionState.CANCELLED
         else:
             raise AttributeError(f"Unknown petition state: {self.state}")
@@ -442,4 +478,7 @@ __all__ = [
     "WatchdogPetition",
     "SignalingPetition",
     "PetitionState",
+    "STOPPED_STATES",
+    "RUNNING_STATES",
+    "BROKEN_STATES",
 ]

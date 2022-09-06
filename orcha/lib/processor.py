@@ -425,10 +425,16 @@ class Processor:
                 return
 
             log.debug('petition "%s" satisfied condition', p)
-            self.manager.on_start(p)
+            try:
+                healthy = self.manager.on_start(p)
+            except Exception as e:
+                p.state = PetitionState.BROKEN
+                log.critical("Unable to start petition %s with error: %s", p, e)
+                healthy = False
 
         try:
-            p.action(assign_pid, p)
+            if healthy:
+                p.action(assign_pid, p)
         except Exception as e:
             log.warning(
                 'unhandled exception while running petition "%s" -> "%s"', p, e, exc_info=True
@@ -440,6 +446,7 @@ class Processor:
             with self._pred_lock:
                 self.manager.on_finish(p)
 
+            # set garbage collector flag to cleanup ourselves
             self._gc_event.set()
 
     def _signal_handler(self):

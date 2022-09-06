@@ -22,6 +22,9 @@
 """:mod:`interfaces` defines the basic structure needed when communicating with Orcha"""
 from .message import Message
 from .petition import (
+    BROKEN_STATES,
+    RUNNING_STATES,
+    STOPPED_STATES,
     ActionCallbackT,
     EmptyPetition,
     P,
@@ -46,4 +49,7 @@ __all__ = [
     "WatchdogPetition",
     "SignalingPetition",
     "PetitionState",
+    "STOPPED_STATES",
+    "RUNNING_STATES",
+    "BROKEN_STATES",
 ]

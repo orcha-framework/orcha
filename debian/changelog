@@ -1,4 +1,13 @@
-python3-orcha (0.2.4-2) UNRELEASED; urgency=high
+python3-orcha (0.2.5) UNRELEASED; urgency=high
+
+  * Processor handles unhealthy "on_start" results, directly calling "on_finish"
+    when failed to start a petition. An update is required for those modules
+    implementing such function with custom behavior as "None" results will
+    be translated into an unhealthy status.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 06 Sep 2022 11:45:00 +0200
+
+python3-orcha (0.2.4-2) unstable; urgency=high
 
   * Fix an issue with watchdog embedded plugin.
 
