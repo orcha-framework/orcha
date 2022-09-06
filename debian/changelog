@@ -1,4 +1,18 @@
-python3-orcha (0.2.5) UNRELEASED; urgency=high
+python3-orcha (0.2.6) UNRELEASED; urgency=high
+
+  * Managers now leverage all the logic to the "on_start" and "on_finish" functions,
+    keeping its internals defined at "start_petition" and "finish_petition" methods
+    that are called by the processor and usually are not overriden.
+
+  * "on_finish" now returns nothing and is ensured to be called only iff the petition
+    existed and was running.
+
+  * "on_start" returns a boolean but is also ensured to be called only iff the petition
+    belongs to us, it is, is a non-internal petition.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 06 Sep 2022 17:35:00 +0200
+
+python3-orcha (0.2.5) unstable; urgency=high
 
   * Processor handles unhealthy "on_start" results, directly calling "on_finish"
     when failed to start a petition. An update is required for those modules

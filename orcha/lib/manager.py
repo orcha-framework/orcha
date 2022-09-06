@@ -26,6 +26,7 @@ import multiprocessing
 from abc import ABC, abstractmethod
 from multiprocessing.managers import SyncManager
 from queue import Queue
+from threading import Lock
 from typing import Callable, Optional, Union
 from warnings import warn
 
@@ -548,6 +549,36 @@ class Manager(ABC):
         """
         ...
 
+    def start_petition(self, petition: Petition, lock: Lock) -> bool:
+        """Method to be called when the processor accepts a petition to be enqueued. This
+        internal method **should not be overrideden** nor **called directly** by subclasses,
+        use :func:`on_start` instead for implementing your own behavior.
+
+        By defining this method, subclasses can implement their own behavior based on
+        their needs instead of orchestrator ones (i.e.: watchdog petitions). For
+        preserving the same behavior as the one in older versions, the :func:`on_start`
+        method is called in a mutually exclusive way among other processes.
+
+        On its own, this method keeps track of the enqueued petitions and nothing else.
+        See :class:`WatchdogManager` for seeing a different behavior of this method
+        for handling Orcha's internal petitions.
+
+        Args:
+            petition (:obj:`Petition`): petition that is about to be started.
+            lock (:obj:`Lock <threading.Lock>`): processor's lock shared with our instance.
+
+        Returns:
+            :obj:`bool`: if the petition was started correctly.
+        """
+        if not self._is_client:
+            with self._set_lock:
+                self._enqueued_messages.add(petition.id)
+                petition.state = PetitionState.RUNNING
+
+            with lock:
+                return self.on_start(petition)
+        return False
+
     @abstractmethod
     def on_start(self, petition: Petition) -> bool:
         """Action to be run when a :class:`Petition <orcha.interfaces.Petition>` has started
@@ -559,22 +590,12 @@ class Manager(ABC):
 
         Note:
             This method is intended to be used for managing requests queues and how are
-            they handled depending on, for example, CPU usage. For a custom behavior
-            on execution, please better use :attr:`action <orcha.interfaces.Petition.action>`.
+            they handled depending on, for example, CPU usage or starting services.
+            For a custom behavior on execution, please better use
+            :attr:`action <orcha.interfaces.Petition.action>`.
 
         Warning:
-            It is **fundamental** that child server managers call ``super()`` on this
-            method, as not doing this will break the non-duplicates algorithm::
-
-                from orcha.lib import Manager
-
-                class ServerManager(Manager):
-                    ...
-
-                    def on_start(self, *args) -> bool:
-                        super().on_start(*args)
-
-            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            This method is called by :func:`start` in
             a mutex environment, so it is **required** that no unhandled exception happens here
             and that the operations done are minimal, as other processes will have to wait until
             this call is done.
@@ -596,16 +617,46 @@ class Manager(ABC):
 
         Returns:
             :obj:`bool`: :obj:`True` if the start process went fine, :obj:`False` otherwise.
+
+        .. versionadded:: 0.2.6
+            Child classes do not require to call ``super`` for this method call.
+        """
+        ...
+
+    def finish_petition(self, petition: Petition, lock: Lock) -> bool:
+        """Method that is called when a petition has finished its execution, if for example it
+        has been finished abruptly or if it has finished OK. If a petition reaches this function,
+        its state should be either :attr:`PetitionState.FINISHED` or :attr:`PetitionState.BROKEN`.
+
+        If the petition is valid, then :func:`on_finish` will be called. This
+        internal method **should not be overrideden** nor **called directly** by subclasses,
+        use :func:`on_finish` instead for implementing your own behavior.
+
+        On its own, this method keeps track of the enqueued petitions and nothing else.
+        See :class:`WatchdogManager` for seeing a different behavior of this method
+        for handling Orcha's internal petitions.
+
+        Args:
+            petition (:obj:`Petition`): petition that is about to be started.
+            lock (:obj:`Lock <threading.Lock>`): processor's lock shared with our instance.
+
+        Returns:
+            :obj:`bool`: if the petition was started correctly.
         """
         if not self._is_client:
-            with self._set_lock:
-                self._enqueued_messages.add(petition.id)
-                petition.state = PetitionState.RUNNING
-            return True
+            if self.is_running(petition):
+                with self._set_lock:
+                    self._enqueued_messages.remove(petition.id)
+                    if petition.state not in BROKEN_STATES:
+                        petition.state = PetitionState.FINISHED
+
+                with lock:
+                    return self.on_finish(petition)
+            return False
         return False
 
     @abstractmethod
-    def on_finish(self, petition: Petition) -> bool:
+    def on_finish(self, petition: Petition):
         """Action to be run when a :class:`Petition <orcha.interfaces.Petition>` has started
         its execution, in order to manage how the manager will react to other petitions when
         enqueued (i.e.: to have a control on the execution, how many items are running, etc.).
@@ -620,53 +671,23 @@ class Manager(ABC):
             :attr:`action <orcha.interfaces.Petition.action>`.
 
         Warning:
-            It is **fundamental** that child server managers call ``super()`` on this
-            method, as not doing this will break the non-duplicates algorithm::
-
-                from orcha.lib import Manager
-
-                class ServerManager(Manager):
-                    ...
-
-                    def on_finish(self, *args) -> bool:
-                        existed = super().on_finish(*args)
-                        if existed:
-                            # do your stuff
-                            ...
-                        return existed
-
-            Notice that the :func:`on_finish` returns a boolean value indicating whether
-            if the request for the :class:`petition <orcha.interfaces.Petition>` was successful
-            or not. A request is considered unsuccessful if one of the following conditions is met:
-
-                + The current manager **is a client**.
-                + The :class:`petition <orcha.interfaces.Petition>` was not registered (it is not
-                  a running petition).
-
-            In addition, this method is run by the :class:`Processor <orcha.lib.Processor>` in
+            This method is called by :func:`finish` in
             a mutex environment, so it is **required** that no unhandled exception happens here
             and that the operations done are minimal, as other processes will have to wait until
             this call is done.
 
+        Important:
+            Since version ``0.2.6`` there is no need to return any value. It is ensured that this
+            method is called iff the received petition existed and was running.
+
         Args:
             petition (Petition): the petition that has just started
 
-        Returns:
-            bool: :obj:`True` if the finish request was successful, :obj:`False` otherwise.
-
-                  A finish request is considered successful if the petition was registered
-                  and running. See the warning above to know which one is returned in each
-                  situation.
+        .. versionadded:: 0.2.6
+            This method returns nothing as it is ensured to be called only iff the given petition
+            was running.
         """
-        if not self._is_client:
-            if self.is_running(petition):
-                with self._set_lock:
-                    self._enqueued_messages.remove(petition.id)
-                    if petition.state not in BROKEN_STATES:
-                        petition.state = PetitionState.FINISHED
-                return True
-            return False
-        return False
+        ...
 
 
 class ClientManager(Manager):
@@ -845,6 +866,16 @@ class WatchdogManager(Manager):
             return WatchdogPetition(notify_watchdog=self.notify_watchdog, queue=m.extras["queue"])
 
         return None
+
+    def start_petition(self, petition: Petition, lock: Lock) -> bool:
+        if not isinstance(petition, WatchdogPetition):
+            return super().start_petition(petition, lock)
+
+        return True
+
+    def finish_petition(self, petition: Petition, lock: Lock):
+        if not isinstance(petition, WatchdogPetition):
+            super().finish_petition(petition, lock)
 
 
 class WatchdogClientManager(ClientManager, WatchdogManager):

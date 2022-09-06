@@ -424,13 +424,13 @@ class Processor:
                 self._gc_event.set()
                 return
 
-            log.debug('petition "%s" satisfied condition', p)
-            try:
-                healthy = self.manager.on_start(p)
-            except Exception as e:
-                p.state = PetitionState.BROKEN
-                log.critical("Unable to start petition %s with error: %s", p, e)
-                healthy = False
+        log.debug('petition "%s" satisfied condition', p)
+        try:
+            healthy = self.manager.start_petition(p, self._pred_lock)
+        except Exception as e:
+            p.state = PetitionState.BROKEN
+            log.critical("Unable to start petition %s with error: %s", p, e)
+            healthy = False
 
         try:
             if healthy:
@@ -443,8 +443,7 @@ class Processor:
             log.debug('petition "%s" finished, triggering callbacks', p)
             self._petitions.pop(p.id, None)
 
-            with self._pred_lock:
-                self.manager.on_finish(p)
+            self.manager.finish_petition(p, self._pred_lock)
 
             # set garbage collector flag to cleanup ourselves
             self._gc_event.set()

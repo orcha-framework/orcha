@@ -50,10 +50,10 @@ At the service manager we need to define basically the following things:
   :class:`Petition <orcha.interfaces.Petition>`.
 + The :func:`on_start() <orcha.lib.Manager.on_start>` method which allows
   us to do something when a process has started (if we need to do nothing,
-  we can simply call ``super`` here).
+  we can simply return :obj:`True` here).
 + The :func:`on_finish() <orcha.lib.Manager.on_finish>` method which allows
   us to do something when a process has finished (if we need to do nothing,
-  we can simply call ``super`` here).
+  we can simply call ``pass`` here).
 
 We can override any other public method defined at
 :class:`Manager <orcha.lib.Manager>` but with all of the above is OK
@@ -147,11 +147,11 @@ will be::
 
 
     class ServiceManager(Manager):
-        def on_start(self, *args):
-            super().on_start(*args)
+        def on_start(self, *args) -> bool:
+            return True
 
         def on_finish(self, *args):
-            super().on_finish(*args)
+            pass
 
         def convert_to_petition(self, m: Message) -> Optional[Petition]:
             try:
@@ -182,29 +182,9 @@ will be::
         class ServiceManager(WatchdogManager):
             ...  # same as example above
 
-    Notice that if you define your own :func:`on_start <orcha.lib.Manager.on_start>` and
-    :func:`on_finish <orcha.lib.Manager.on_finish>` methods for
-    your manager, you **must check** if the received :class:`Petition <orcha.interfaces.Petition>`
-    is a :class:`WatchdogManager <orcha.interfaces.WatchdogManager>` indeed, so
-    you do not apply your own logic for such specific situation. The code snippet
-    should be like::
-
-        class YourManager(WatchdogManager):
-            ...
-
-            def on_start(self, p: Petition | WatchdogPetition):
-                super().on_start(p)
-                if not isinstance(p, WatchdogPetition):
-                    ...  # your logic goes here
-
-            def on_finish(self, p: Petition | WatchdogPetition):
-                exists = super().on_finish(p)
-                if exists and not isinstance(p, WatchdogPetition):
-                    ...  # your logic goes here
-
-    This applies only if your logic does not depend on
-    :class:`WatchdogPetition <orcha.interfaces.WatchdogPetition>`,
-    which usually does.
+    This is the only thing that changes. Notice that since version ``0.2.6`` there is no
+    need to check if the received petition is a :class:`WatchdogPetition <orcha.interfaces.WatchdogPetition>`
+    or not.
 
 
 For the client we don't need any custom manager, so we can use Orcha's
