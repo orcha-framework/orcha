@@ -30,6 +30,7 @@ import errno
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import IntEnum
 from functools import total_ordering
 from queue import Queue
@@ -89,6 +90,46 @@ class PetitionState(IntEnum):
 
     .. versionadded:: 0.2.5
     """
+
+    @property
+    def is_enqueued(self) -> bool:
+        """Checks if the petition is enqueued"""
+        return self == self.ENQUEUED
+
+    @property
+    def is_running(self) -> bool:
+        """Checks if the petition is running"""
+        return self == self.RUNNING
+
+    @property
+    def has_finished(self) -> bool:
+        """Checks if the petition has finished"""
+        return self == self.FINISHED
+
+    @property
+    def has_been_cancelled(self) -> bool:
+        """Checks if the petition has been cancelled"""
+        return self == self.CANCELLED
+
+    @property
+    def is_broken(self) -> bool:
+        """Checks if the petition is broken"""
+        return self == self.BROKEN
+
+    @property
+    def is_stopped(self) -> bool:
+        """Checks if the petition is stopped"""
+        return self in STOPPED_STATES
+
+    @property
+    def is_in_running_state(self) -> bool:
+        """Checks if the petition is in a running state"""
+        return self in RUNNING_STATES
+
+    @property
+    def is_in_broken_state(self) -> bool:
+        """Checks if the petition is in a broken state"""
+        return self in BROKEN_STATES
 
 
 STOPPED_STATES = {
@@ -307,13 +348,13 @@ class Petition(ABC):
             Such body ensures petition state is valid and sets the new one, which will
             be :obj:`CANCELLED <PetitionState.CANCELLED>`.
         """
-        if self.state in STOPPED_STATES:
+        if self.state.is_stopped:
             raise ValueError(
                 "Cannot terminate a petition whose state is either FINISHED, PENDING or BROKEN"
             )
 
         # if we are called, our state is now CANCELLED
-        if self.state in RUNNING_STATES:
+        if self.state.is_in_running_state:
             self.state = PetitionState.CANCELLED
         else:
             raise AttributeError(f"Unknown petition state: {self.state}")
@@ -399,6 +440,8 @@ class WatchdogPetition(Petition):
     def __init__(self, notify_watchdog: bool, queue: Optional[Queue] = None):
         self.notify_watchdog = notify_watchdog
         self.queue = queue
+        self.creation_time = datetime.utcnow()
+        self.elapsed_time = -1
 
     # pylint: disable=method-hidden ; actually it is not
     def action(self, *_):
@@ -407,12 +450,17 @@ class WatchdogPetition(Petition):
 
         .. versionadded:: 0.2.4-2
         """
-        if self.notify_watchdog:
-            systemd.notify(r"WATCHDOG=1")
-            if self.queue is not None:
-                self.finish(0)
-        else:
-            self.finish(errno.EPERM)
+        try:
+            if self.notify_watchdog:
+                if self.queue is not None:
+                    self.finish(0)
+                systemd.notify(r"WATCHDOG=1")
+            else:
+                self.finish(errno.EPERM)
+        except (EOFError, ConnectionError):
+            # watchdog did not succeed in time!
+            self.state = PetitionState.BROKEN
+            self.elapsed_time = self.creation_time - datetime.utcnow()
 
     def terminate(self, _: Optional[int]) -> bool:
         pass

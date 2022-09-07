@@ -31,13 +31,7 @@ from warnings import warn
 
 from orcha import properties
 from orcha.exceptions import ManagerShutdownError
-from orcha.interfaces import (
-    BROKEN_STATES,
-    Message,
-    Petition,
-    PetitionState,
-    WatchdogPetition,
-)
+from orcha.interfaces import Message, Petition, PetitionState, WatchdogPetition
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
@@ -574,17 +568,26 @@ class Manager(ABC):
 
         Returns:
             :obj:`bool`: if the petition was started correctly.
-        """
-        if (
-            not self._is_client
-            and petition.state == PetitionState.ENQUEUED
-            and not self.is_running(petition)
-        ):
-            with self._set_lock:
-                self._enqueued_messages.add(petition.id)
-                petition.state = PetitionState.RUNNING
 
-            with self._petition_lock:
+        .. versionchanged:: 0.2.6-2
+            :obj:`Petition's condition <orcha.interfaces.Petition.condition>` is now checked at
+            manager level. If the condition is falsy, then this function will return :obj:`False`
+            but will keep the received state, it is, usually
+            :obj:`ENQUEUED <orcha.interfaces.PetitionState.ENQUEUED>`. The
+            :class:`Processor <orcha.lib.Processor>` will check for both healthiness and state
+            for re-enqueuing the petition again when the condition was not satisfied.
+        """
+        with self._petition_lock:
+            if (
+                petition.condition(petition)
+                and not self._is_client
+                and petition.state.is_enqueued
+                and not self.is_running(petition)
+            ):
+                with self._set_lock:
+                    self._enqueued_messages.add(petition.id)
+                    petition.state = PetitionState.RUNNING
+
                 return self.on_start(petition)
         return False
 
@@ -654,7 +657,7 @@ class Manager(ABC):
             if self.is_running(petition):
                 with self._set_lock:
                     self._enqueued_messages.remove(petition.id)
-                    if petition.state not in BROKEN_STATES:
+                    if not petition.state.is_in_broken_state:
                         petition.state = PetitionState.FINISHED
 
                 with self._petition_lock:
@@ -877,11 +880,20 @@ class WatchdogManager(Manager):
         if not isinstance(petition, WatchdogPetition):
             return super().start_petition(petition)
 
+        petition.state = PetitionState.RUNNING
         return True
 
     def finish_petition(self, petition: Petition):
         if not isinstance(petition, WatchdogPetition):
             super().finish_petition(petition)
+        else:
+            if petition.state.is_in_broken_state:
+                log.critical(
+                    "Watchdog request did not succeed in time! Failed after %s",
+                    petition.elapsed_time,
+                )
+            else:
+                petition.state = PetitionState.FINISHED
 
 
 class WatchdogClientManager(ClientManager, WatchdogManager):

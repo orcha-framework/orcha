@@ -240,7 +240,6 @@ class Processor:
             self._threads: List[Thread] = []
             self._petitions: Dict[Optional[int], Tuple[int, Petition]] = {}
             self._gc_event = Event()
-            self._pred_lock = Lock()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
             self._finished_t = Thread(target=self._signal_handler)
@@ -417,14 +416,6 @@ class Processor:
             log.debug('assigning pid to "%s"', pid)
             self._petitions[p.id] = pid, p
 
-        with self._pred_lock:
-            if not p.condition(p):
-                log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
-                self._internalq.put(p)
-                self._gc_event.set()
-                return
-
-        log.debug('petition "%s" satisfied condition', p)
         try:
             healthy = self.manager.start_petition(p)
         except Exception as e:
@@ -432,6 +423,13 @@ class Processor:
             log.critical("Unable to start petition %s with error: %s", p, e)
             healthy = False
 
+        if not healthy and p.state.is_enqueued:
+            log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
+            self._internalq.put(p)
+            self._gc_event.set()
+            return
+
+        log.debug('petition "%s" satisfied condition', p)
         try:
             if healthy:
                 p.action(assign_pid, p)

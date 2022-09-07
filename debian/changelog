@@ -1,4 +1,13 @@
-python3-orcha (0.2.6-1) UNRELEASED; urgency=high
+python3-orcha (0.2.6-2) UNRELEASED; urgency=high
+
+  * Fix a race condition when calling "condition" and then "on_start" that
+    could lead to potential issues as a condition may evaluate to true but
+    when reserving the resources another petition had already taken them,
+    leading to an invalid value (i.e.: negative resource amount).
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 07 Sep 2022 11:45:00 +0200
+
+python3-orcha (0.2.6-1) unstable; urgency=high
 
   * Minor bug fixes.
 
