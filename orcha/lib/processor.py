@@ -81,15 +81,15 @@ class Processor:
          | ╔══════════════════════════╗ ║       ╔══════════════════╩═════╗
          ├►║ Internal petition thread ╠═║══════►║ Petition launch thread ║
          | ╚══════════════════════════╝ ▼       ╚══════════════════╤═════╝
-         |       ╔════════════════════════╗                 ▲      |  ┌─────────────────────┐
-         └──────►║ Internal signal thread ╠═════════════════╝      ├─►| manager.on_start(p) |
-                 ╚════════════════════════╝   send SIGTERM         |  └─────────────────────┘
+         |       ╔════════════════════════╗                 ▲      |  ┌───────────────────────────┐
+         └──────►║ Internal signal thread ╠═════════════════╝      ├─►| manager.start_petition(p) |
+                 ╚════════════════════════╝   send SIGTERM         |  └───────────────────────────┘
                                                                    |   ┌─────────────────┐
                                                                    ├──►| p.action(fn, p) |
                                                                    |   └─────────────────┘
-                                                                   | ┌──────────────────────┐
-                                                                   └►| manager.on_finish(p) |
-                                                                     └──────────────────────┘
+                                                                   | ┌────────────────────────────┐
+                                                                   └►| manager.finish_petition(p) |
+                                                                     └────────────────────────────┘
 
     Note:
         Ideally, you don't need to create any instance for this class, as it is completely
@@ -426,7 +426,7 @@ class Processor:
 
         log.debug('petition "%s" satisfied condition', p)
         try:
-            healthy = self.manager.start_petition(p, self._pred_lock)
+            healthy = self.manager.start_petition(p)
         except Exception as e:
             p.state = PetitionState.BROKEN
             log.critical("Unable to start petition %s with error: %s", p, e)
@@ -443,7 +443,7 @@ class Processor:
             log.debug('petition "%s" finished, triggering callbacks', p)
             self._petitions.pop(p.id, None)
 
-            self.manager.finish_petition(p, self._pred_lock)
+            self.manager.finish_petition(p)
 
             # set garbage collector flag to cleanup ourselves
             self._gc_event.set()

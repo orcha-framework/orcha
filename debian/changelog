@@ -1,4 +1,10 @@
-python3-orcha (0.2.6) UNRELEASED; urgency=high
+python3-orcha (0.2.6-1) UNRELEASED; urgency=high
+
+  * Minor bug fixes.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 07 Sep 2022 10:00:00 +0200
+
+python3-orcha (0.2.6) unstable; urgency=high
 
   * Managers now leverage all the logic to the "on_start" and "on_finish" functions,
     keeping its internals defined at "start_petition" and "finish_petition" methods

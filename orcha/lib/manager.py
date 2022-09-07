@@ -26,7 +26,6 @@ import multiprocessing
 from abc import ABC, abstractmethod
 from multiprocessing.managers import SyncManager
 from queue import Queue
-from threading import Lock
 from typing import Callable, Optional, Union
 from warnings import warn
 
@@ -79,18 +78,18 @@ class Manager(ABC):
                    |                     |      |                   |         └──────────────┘
                    |                     |      └───────────────────┘
                    |                     |
-                   |             ┌───────┴──────┬────────────────────┐
-                   ▼             ▼              ▼                    ▼
-             ┌───────────┐ ┌────────────┐ ┌─────────────┐ ┌─────────────────────┐
-             |  setup()  | | on_start() | | on_finish() | | convert_to_petition |
-             └───────────┘ └────────────┘ └─────────────┘ └─────────────────────┘
-
-                                                 is_client
-                                                 ────┬────
-                                                     |
-                                                     |            ┌─────────────┐
-                                                     ├───────────►|  connect()  |
-                                                     |            └─────────────┘
+                   |             ┌───────┴────────────────┬────────────────────┐
+                   ▼             ▼                        ▼                    ▼
+             ┌───────────┐ ┌──────────────────┐ ┌───────────────────┐ ┌─────────────────────┐
+             |  setup()  | | start_petition() | | finish_petition() | | convert_to_petition |
+             └───────────┘ └─┬────────────────┘ └─┬─────────────────┘ └─────────────────────┘
+                             |             ┌──────┘
+                             |             |     is_client
+                             |             |     ────┬────
+                             ▼             ▼         |
+                    ┌────────────┐  ┌─────────────┐  |            ┌─────────────┐
+                    | on_start() |  | on_finish() |  ├───────────►|  connect()  |
+                    └────────────┘  └─────────────┘  |            └─────────────┘
                                                      |           ┌───────────────┐
                                                      ├──────────►| send(message) |
                                                      |           └───────────────┘
@@ -200,6 +199,7 @@ class Manager(ABC):
         self._create_processor = create_processor
         self._is_client = is_client
         self._set_lock = multiprocessing.Lock()
+        self._petition_lock = multiprocessing.Lock()
         self._enqueued_messages = set()
         self._shutdown = multiprocessing.Value("b", False)
 
@@ -344,11 +344,11 @@ class Manager(ABC):
                 log.debug("finishing manager")
                 try:
                     self.manager.shutdown()
-                except AttributeError:
-                    # ignore AttributeError errors
+                    # wait at most 60 seconds before considering the manager done
+                    self.manager.join(timeout=60.0)  # pylint: disable=no-member
+                except (AttributeError, AssertionError):
+                    # ignore AttributeError and AssertionError errors
                     pass
-                # wait at most 60 seconds before considering the manager done
-                self.manager.join(timeout=60.0)  # pylint: disable=no-member
 
             log.debug("parent handler finished")
         except Exception as e:
@@ -549,7 +549,7 @@ class Manager(ABC):
         """
         ...
 
-    def start_petition(self, petition: Petition, lock: Lock) -> bool:
+    def start_petition(self, petition: Petition) -> bool:
         """Method to be called when the processor accepts a petition to be enqueued. This
         internal method **should not be overrideden** nor **called directly** by subclasses,
         use :func:`on_start` instead for implementing your own behavior.
@@ -563,19 +563,28 @@ class Manager(ABC):
         See :class:`WatchdogManager` for seeing a different behavior of this method
         for handling Orcha's internal petitions.
 
+        Important:
+            Since version ``0.2.6-1`` it is ensured that the :func:`on_start` method is
+            called iff the petition is :obj:`enqueued <orcha.interfaces.PetitionState.ENQUEUED>`
+            and not running yet, so there is no need to implement such logic at subclasses.
+
         Args:
-            petition (:obj:`Petition`): petition that is about to be started.
-            lock (:obj:`Lock <threading.Lock>`): processor's lock shared with our instance.
+            petition (:obj:`Petition <orcha.interfaces.Petition>`): petition that is about
+                to be started.
 
         Returns:
             :obj:`bool`: if the petition was started correctly.
         """
-        if not self._is_client:
+        if (
+            not self._is_client
+            and petition.state == PetitionState.ENQUEUED
+            and not self.is_running(petition)
+        ):
             with self._set_lock:
                 self._enqueued_messages.add(petition.id)
                 petition.state = PetitionState.RUNNING
 
-            with lock:
+            with self._petition_lock:
                 return self.on_start(petition)
         return False
 
@@ -595,7 +604,7 @@ class Manager(ABC):
             :attr:`action <orcha.interfaces.Petition.action>`.
 
         Warning:
-            This method is called by :func:`start` in
+            This method is called by :func:`start_petition` in
             a mutex environment, so it is **required** that no unhandled exception happens here
             and that the operations done are minimal, as other processes will have to wait until
             this call is done.
@@ -604,16 +613,17 @@ class Manager(ABC):
             Since version ``0.2.5`` this function shall return a boolean value indicating
             if the :attr:`petition status <orcha.interfaces.Petition.status>` is healthy
             or not. If this function raises an exception, automatically the
-            :attr:`petition status <orcha.interfaces.Petition.status>` will be set to
-            :attr:`PetitionStatus.BROKEN <orcha.interfaces.PetitionStatus.BROKEN>`.
+            :attr:`petition state <orcha.interfaces.Petition.state>` will be set to
+            :attr:`PetitionState.BROKEN <orcha.interfaces.PetitionState.BROKEN>`.
 
             When an :func:`on_start` method fails (``healthy = False``), the
             :attr:`action <orcha.interfaces.Petition.action>` call is skipped and directly
             :func:`on_finish` is called, in which you may handle that
-            :attr:`BROKEN <orcha.interfaces.PetitionStatus.BROKEN>` status
+            :attr:`BROKEN <orcha.interfaces.PetitionState.BROKEN>` status
 
         Args:
-            petition (Petition): the petition that has just started
+            petition (:obj:`Petition <orcha.interfaces.Petition>`): the petition that has
+                just started
 
         Returns:
             :obj:`bool`: :obj:`True` if the start process went fine, :obj:`False` otherwise.
@@ -623,7 +633,7 @@ class Manager(ABC):
         """
         ...
 
-    def finish_petition(self, petition: Petition, lock: Lock) -> bool:
+    def finish_petition(self, petition: Petition):
         """Method that is called when a petition has finished its execution, if for example it
         has been finished abruptly or if it has finished OK. If a petition reaches this function,
         its state should be either :attr:`PetitionState.FINISHED` or :attr:`PetitionState.BROKEN`.
@@ -637,11 +647,8 @@ class Manager(ABC):
         for handling Orcha's internal petitions.
 
         Args:
-            petition (:obj:`Petition`): petition that is about to be started.
-            lock (:obj:`Lock <threading.Lock>`): processor's lock shared with our instance.
-
-        Returns:
-            :obj:`bool`: if the petition was started correctly.
+            petition (:obj:`Petition <orcha.interfaces.Petition>`): petition that is about
+                to be started.
         """
         if not self._is_client:
             if self.is_running(petition):
@@ -650,10 +657,8 @@ class Manager(ABC):
                     if petition.state not in BROKEN_STATES:
                         petition.state = PetitionState.FINISHED
 
-                with lock:
-                    return self.on_finish(petition)
-            return False
-        return False
+                with self._petition_lock:
+                    self.on_finish(petition)
 
     @abstractmethod
     def on_finish(self, petition: Petition):
@@ -671,7 +676,7 @@ class Manager(ABC):
             :attr:`action <orcha.interfaces.Petition.action>`.
 
         Warning:
-            This method is called by :func:`finish` in
+            This method is called by :func:`finish_petition` in
             a mutex environment, so it is **required** that no unhandled exception happens here
             and that the operations done are minimal, as other processes will have to wait until
             this call is done.
@@ -681,7 +686,8 @@ class Manager(ABC):
             method is called iff the received petition existed and was running.
 
         Args:
-            petition (Petition): the petition that has just started
+            petition (:obj:`Petition <orcha.interfaces.Petition>`): the petition that has
+                just started
 
         .. versionadded:: 0.2.6
             This method returns nothing as it is ensured to be called only iff the given petition
@@ -867,15 +873,15 @@ class WatchdogManager(Manager):
 
         return None
 
-    def start_petition(self, petition: Petition, lock: Lock) -> bool:
+    def start_petition(self, petition: Petition) -> bool:
         if not isinstance(petition, WatchdogPetition):
-            return super().start_petition(petition, lock)
+            return super().start_petition(petition)
 
         return True
 
-    def finish_petition(self, petition: Petition, lock: Lock):
+    def finish_petition(self, petition: Petition):
         if not isinstance(petition, WatchdogPetition):
-            super().finish_petition(petition, lock)
+            super().finish_petition(petition)
 
 
 class WatchdogClientManager(ClientManager, WatchdogManager):
