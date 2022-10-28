@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+# We use by default latest Python version, unless there is any
+# requirement that is incompatible with it. In addition, `alpine`
+# ensures that everything is as small as possible, for production
+# use. We will use a multi-stage Dockerfile, in which firstly Orcha
+# will be built and later on, it will use this as the base image
+# for further runs to be faster and efficient.
+ARG  PYTHON_VERSION="3.11"
+ARG  BUILD_DEPENDENCIES="   \
+        elogind-dev         \
+        gcc                 \
+        linux-headers       \
+        musl-dev            \
+        pkgconfig"
+ARG  ORCHA_VERSION_FILE="dist/orcha_version"
+ARG  PYTHON_LIB="/usr/local"
+
+FROM python:${PYTHON_VERSION}-alpine AS build
+ARG  BUILD_DEPENDENCIES
+ARG  PYTHON_VERSION
+ARG  ORCHA_VERSION_FILE
+
+# We will work at /tmp directory
+WORKDIR /tmp
+# The stages to follow are:
+#
+#  1. Install required dependencies
+#  2. Install Orcha requirements
+#  3. Build Orcha itself
+#  4. Install Orcha in the system
+#  5. From this base image, build the final Dockerfile
+RUN  apk add --no-cache ${BUILD_DEPENDENCIES}
+
+COPY requirements.txt requirements.txt
+
+RUN  pip install --no-cache-dir --prefix=/tmp/pylibs -r requirements.txt
+
+# We now do the copy of the Orcha repository
+COPY --link . .
+# And prepare to build Orcha itself
+RUN  python setup.py bdist_wheel && \
+        echo "$(python3 setup.py --version)" > ${ORCHA_VERSION_FILE}
+
+
+FROM python:${PYTHON_VERSION}-alpine
+ARG  ORCHA_VERSION_FILE
+ARG  PYTHON_LIB
+
+WORKDIR /app
+
+COPY --from=build /tmp/dist/.   dist/.
+COPY --from=build /tmp/pylibs/. ${PYTHON_LIB}/.
+
+RUN  ORCHA_VERSION="$(cat ${ORCHA_VERSION_FILE})" &&    \
+        pip install --no-cache "dist/orcha-$ORCHA_VERSION-py3-none-any.whl"
+ENTRYPOINT [ "orcha" ]

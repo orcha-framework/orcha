@@ -35,7 +35,11 @@ of the subclasses.
 """
 from __future__ import annotations
 
-from typing import Optional
+import os
+import typing
+
+if typing.TYPE_CHECKING:
+    from typing import Optional
 
 listen_address: str = "127.0.0.1"
 """
@@ -69,15 +73,6 @@ from the current process.
            + :py:func:`current_process <multiprocessing.current_process>`
 """
 
-systemd: bool = False
-"""
-Whether if the orchestrator is running as a SystemD service or not. This is not
-detected but inherited from CLI arguments, so one can decide whether to use all
-SystemD features or not when running Orcha.
-
-.. versionadded:: 0.2.3
-"""
-
 extras = {}
 """
 Extra properties that you may want to store when working with the project. By default, all
@@ -93,10 +88,21 @@ arguments are stored here in the form::
 In addition, this field is open for adding new arguments that you may need.
 """
 
+queue_timeout = float(os.environ.get("QUEUE_TIMEOUT", 1.0))
+"""The maximum number of seconds to wait until a new item is available
+at the queue, by default ``1 s``. A higher value may reduce CPU load but could
+happen that threads take more time to finish.
+
+Value can be controlled through ``QUEUE_TIMEOUT`` environment variable.
+
+.. versionadded:: 0.3.0
+"""
+
 
 __all__ = [
     "authkey",
     "extras",
     "port",
     "listen_address",
+    "queue_timeout",
 ]

@@ -24,8 +24,11 @@
 """
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass, field
-from typing import Union
+
+if typing.TYPE_CHECKING:
+    from typing import Union
 
 
 @dataclass(frozen=True)

@@ -20,12 +20,3 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Set of embedded plugins that are part of the orchestrator"""
-
-from .watchdog import WatchdogPlugin
-
-PLUGIN_LIST = (WatchdogPlugin,)
-
-__all__ = [
-    "WatchdogPlugin",
-    "PLUGIN_LIST",
-]

@@ -26,45 +26,26 @@ cannot be sent from clients to servers and vice versa.
 """
 from __future__ import annotations
 
-import errno
-import subprocess
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import IntEnum
+from enum import IntEnum, auto, unique
 from functools import total_ordering
 from queue import Queue
-from typing import Any, Callable, Optional, Type, TypeVar, Union
 
-import systemd.daemon as systemd
+from typing_extensions import final
 
-from orcha.utils.cmd import kill_proc_tree
+from orcha.exceptions import InvalidStateError
+from orcha.interfaces.types import Bool
+from orcha.utils import kill_proc_tree, nop, nopr
 
-ProcT = Union[subprocess.Popen, int]
-"""
-Custom type which accepts both an open process and an integer, representing
-the process PID.
+if typing.TYPE_CHECKING:
+    from typing import Any, Callable, Dict, Optional, Set, Union
 
-:see: :py:class:`subprocess.Popen`
-"""
-
-ActionCallbackT = Callable[[ProcT], None]
-"""
-Function with the form ``(ProcT) -> None`` that is called when the petition
-should run. It refers directly the action that represents this petition.
-
-.. versionchanged:: 0.2.4
-    :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
-    :obj:`None`, as the function does return but no value.
-"""
-
-P = TypeVar("P", bound="Petition")
-"""
-Type var that represents a :class:`Petition` instance or any subclass that
-inherits from it.
-"""
+    from typing_extensions import Self
 
 
+@unique
 class PetitionState(IntEnum):
     """
     Class that contains the logic for determining the status of a
@@ -77,18 +58,23 @@ class PetitionState(IntEnum):
 
     PENDING = 0
     """The petition has just been created"""
-    ENQUEUED = 1
+    ENQUEUED = auto()
     """The petition is already enqueued waiting for running"""
-    RUNNING = 2
+    RUNNING = auto()
     """The petition has been started and it's running"""
-    FINISHED = 3
+    FINISHED = auto()
     """Petition processing has been done"""
-    CANCELLED = 4
+    CANCELLED = auto()
     """If the petition has been cancelled before finishing processing"""
-    BROKEN = 5
+    BROKEN = auto()
     """The petition failed to initialize or got an unexpected error while running
 
     .. versionadded:: 0.2.5
+    """
+    DONE = auto()
+    """The petition is done, no further processing is needed.
+
+    .. versionadded:: 0.3.0
     """
 
     @property
@@ -131,6 +117,11 @@ class PetitionState(IntEnum):
         """Checks if the petition is in a broken state"""
         return self in BROKEN_STATES
 
+    @property
+    def is_done(self) -> bool:
+        """Checks if the petition is done"""
+        return self == self.DONE
+
 
 STOPPED_STATES = {
     PetitionState.PENDING,
@@ -162,6 +153,23 @@ considered to be broken, it is, failed during execution, start, etc.
 .. versionadded:: 0.2.5
 """
 
+VALID_STATES: Dict[PetitionState, Set[PetitionState]] = {
+    PetitionState.PENDING: {PetitionState.BROKEN, PetitionState.ENQUEUED},
+    PetitionState.ENQUEUED: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.RUNNING},
+    PetitionState.CANCELLED: {
+        PetitionState.BROKEN,
+    },
+    PetitionState.RUNNING: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.FINISHED},
+    PetitionState.FINISHED: {PetitionState.BROKEN, PetitionState.DONE},
+    PetitionState.DONE: set(),
+    PetitionState.BROKEN: set(),
+}
+"""Set of states in which :class:`petitions <orcha.interfaces.Petition>` are
+expected to be, as well as the possible transitions to new states.
+
+.. versionadded:: 0.3.0
+"""
+
 
 @total_ordering
 @dataclass
@@ -173,14 +181,14 @@ class Petition(ABC):
 
     It is composed by multiple attributes:
 
-     + :attr:`priority` defines the priority of the petition.
-     + :attr:`id` is a unique identifier for the petition.
-     + :attr:`queue` is a :py:class:`Queue <multiprocessing.Queue>` that can
+     - :attr:`priority` defines the priority of the petition.
+     - :attr:`id` is a unique identifier for the petition.
+     - :attr:`queue` is a :py:class:`Queue <multiprocessing.Queue>` that can
        be sent across processes.
-     + :attr:`action` represents the callable that will be executed.
-     + :attr:`condition` is a predicate which defines whether the petition
+     - :attr:`action` represents the callable that will be executed.
+     - :attr:`condition` is a predicate which defines whether the petition
        can be run or not.
-     + :attr:`state` is the internal state of the petition, defined by the
+     - :attr:`state` is the internal state of the petition, defined by the
        enum :class:`PetitionState`.
 
     This class is intended to be a stub so your implementation must inherit
@@ -194,7 +202,7 @@ class Petition(ABC):
 
     .. versionadded:: 0.2.0
         This class now defines a :func:`terminate` which is abstract and should
-        be overriden by all subclasses that inherit from :class:`Petition`. Such
+        be overridden by all subclasses that inherit from :class:`Petition`. Such
         function allows defining a custom behavior when a finish message is
         received.
 
@@ -211,7 +219,7 @@ class Petition(ABC):
     :see: :py:func:`field <dataclasses.field>`
     """
 
-    priority: int = field(init=False)
+    priority: float = field(init=False)
     """
     Priority of the petition. It is an integer whose value is used for comparing
     across other petitions. The lower the value is, the higher the priority gets.
@@ -227,7 +235,7 @@ class Petition(ABC):
        Accept :obj:`str` as unique ID identifier also.
     """
 
-    queue: Queue = field(compare=False, repr=False)
+    queue: Optional[Queue] = field(compare=False, repr=False)
     """
     :class:`Queue <multiprocessing.Queue>` used for process communication. Actually,
     this queue is used as a one-sided pipe in which the server puts the messages of
@@ -241,14 +249,17 @@ class Petition(ABC):
         to use your own queue given by :py:mod:`multiprocessing` but it probably won't work.
         It is better to use the exposed manager for obtaining a queue once the client is
         initialized: :attr:`Manager.manager <orcha.lib.manager.Manager.manager>`.
+
+    .. versionchanged:: 0.3.0
+        :attr:`queue` can be :obj:`None`.
     """
 
-    action: Callable[[ActionCallbackT, Type[P]], None] = field(compare=False, repr=False)
+    action: Callable[[Self], None] = field(compare=False, repr=False)
     """
     The action to be called when the petition is pop from the queue. It is a function with the
     form::
 
-        def action(cb: (Union[subprocess.Popen, int]) -> None, p: Petition) -> None
+        def action(p: Petition) -> None
 
     Notice that the action will
     be built on "server side", meaning that this attribute will default to :obj:`None` at the
@@ -260,26 +271,63 @@ class Petition(ABC):
     .. versionchanged:: 0.2.4
         :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
         :obj:`None`, as the function does return but no value.
+
+    .. versionchanged:: 0.3.0
+        :attr:`action` no longer receives ``cb`` (callback) argument.
     """
 
-    condition: Callable[[Type[P]], bool] = field(compare=False, repr=False)
+    condition: Callable[[Self], Bool] = field(compare=False, repr=False)
     """
     Predicate that decides whether the request should be processed or not. It is a function
     with the form::
 
-        def predicate(p: Petition) -> bool
+        def predicate(p: Petition) -> SupportsBool
 
     If your petitions do not require any particular condition, you can always define an
     empty predicate which always returns :obj:`True`::
 
         petition = Petition(..., condition=lambda _: True)
 
+    .. versionchanged:: 0.3.0
+        Typing signature for this predicate has changed for returning
+        :obj:`orcha.interfaces.SupportsBool`, which allows better customization
+        and better integration with the new pluggable interface.
     """
 
-    state: PetitionState = field(compare=False, init=False, default=PetitionState.PENDING)
+    @property
+    def state(self) -> PetitionState:
+        """Petition's state that indicates current step in the processing queue. Available
+        states are defined at :class:`PetitionState` enumerate.
+
+        .. versionchanged:: 0.3.0:: This field is now a property
+        """
+        return self.__state__
+
+    @state.setter
+    def state(self, state: PetitionState):
+        """Petition's state that indicates current step in the processing queue. Available
+        states are defined at :class:`PetitionState` enumerate.
+
+        Raises:
+            :obj:`InvalidStateError` if the next state is an invalid movement.
+
+        .. versionchanged:: 0.3.0:: This field is now a property
+        """
+        if state not in VALID_STATES[self.__state__]:
+            raise InvalidStateError(
+                f'Cannot go to state "{self.__state__.name}" from current state "{state.name}" '
+                f'"[{self.__state__.name} --x-> {state.name}]'
+            )
+
+        self.__state__ = state
+
+    __state__: PetitionState = field(compare=False, init=False, default=PetitionState.PENDING)
     """
     Petition's state that indicates current step in the processing queue. Available
     states are defined at :class:`PetitionState` enumerate.
+
+    .. versionchanged:: 0.3.0
+        Field is obscured by the property :attr:`state`.
     """
 
     def communicate(self, message: Any, blocking: bool = True):
@@ -288,12 +336,16 @@ class Petition(ABC):
 
         Args:
             message (any): a valid item that can be put on a :class:`queue.Queue`.
-            blocking (bool): whether to block or not while putting the item on the queue.
+            blocking (:obj:`bool`): whether to block or not while putting the item on the queue.
 
         Raises:
             queue.Full: if the queue has exceeded its maximum capacity and ``blocking`` is set
                         to :obj:`True`.
+            :obj:`AttributeError`: if the :attr:`queue` is :obj:`None`.
         """
+        if self.queue is None:
+            raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
+
         try:
             self.queue.put(message, block=blocking)
         except ValueError:
@@ -309,7 +361,11 @@ class Petition(ABC):
 
         Raises:
             queue.Full: if the queue has exceeded its maximum capacity.
+            :obj:`AttributeError`: if the :attr:`queue` is :obj:`None`.
         """
+        if self.queue is None:
+            raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
+
         try:
             self.queue.put_nowait(message)
         except ValueError:
@@ -321,22 +377,24 @@ class Petition(ABC):
 
         Args:
             ret (int | None): return code of the operation, if any.
+
+        Raises:
+            :obj:`AttributeError`: if the :attr:`queue` is :obj:`None`.
         """
+        if self.queue is None:
+            raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
+
         try:
             self.queue.put(ret)
         except ValueError:
             pass
 
     @abstractmethod
-    def terminate(self, pid: Optional[int]) -> bool:
+    def terminate(self) -> bool:
         """
         Function that is called every time a finish request is received
         for killing the process itself. One can use either the received PID, if any,
         or a saved argument at the running class instance.
-
-        Args:
-            pid (:obj:`int` | :obj:`None`): process identifier, useful when trying to
-                signaling a process.
 
         Returns:
             :obj:`bool`: that indicates if the operation has been successful or not.
@@ -347,19 +405,11 @@ class Petition(ABC):
             This function now has a body which must be called always from child classes.
             Such body ensures petition state is valid and sets the new one, which will
             be :obj:`CANCELLED <PetitionState.CANCELLED>`.
+
+        .. versionchanged:: 0.3.0
+            :meth:`terminate` does not require anymore any parameter, is up to the
+            developer to define its own behavior.
         """
-        if self.state.is_stopped:
-            raise ValueError(
-                "Cannot terminate a petition whose state is either FINISHED, PENDING or BROKEN"
-            )
-
-        # if we are called, our state is now CANCELLED
-        if self.state.is_in_running_state:
-            self.state = PetitionState.CANCELLED
-        else:
-            raise AttributeError(f"Unknown petition state: {self.state}")
-
-        return True
 
     def __eq__(self, __o: object) -> bool:
         # ensure we are comparing against our class or a subclass of ours
@@ -386,6 +436,7 @@ class Petition(ABC):
         return self.priority < __o.priority
 
 
+@final
 @dataclass(init=False)
 class EmptyPetition(Petition):
     """
@@ -402,68 +453,13 @@ class EmptyPetition(Petition):
     priority = float("inf")
     id = -1
     queue = None
-    action = None
-    condition = None
+    action = nop
+    condition = nopr(True)
+    terminate = nopr(True)
 
+    # pylint: disable=super-init-not-called
     def __init__(self):
-        pass
-
-    def terminate(self, _: Optional[int]) -> bool:
-        pass
-
-
-@dataclass(init=False)
-class WatchdogPetition(Petition):
-    """
-    Watchdog petition has always the greatest priority so it should be run the first
-    whenever it is received. It is used for indicating whether the processor should
-    watchdog the SystemD main process so we inform we are still running.
-
-    Warning:
-        The priority of this petition is always the higher (using ``float("-inf")``),
-        be careful whenever you place a custom petition with higher priority: do not
-        use ``float("-inf")`` as an expression, try keeping your priorities above ``0``
-        an go as high as you want.
-
-    .. versionchanged:: 0.2.4
-        :class:`WatchdogPetition` now takes care of notifying SystemD watchdog on its
-        :attr:`action <orcha.interfaces.WatchdogPetition.action>` as well as finishing
-        the listening client when done.
-    """
-
-    priority = float("-inf")
-    id = r"watchdog"
-    queue = None
-    # We always satisfy the condition
-    condition = lambda *_: True  # noqa: E731
-
-    def __init__(self, notify_watchdog: bool, queue: Optional[Queue] = None):
-        self.notify_watchdog = notify_watchdog
-        self.queue = queue
-        self.creation_time = datetime.utcnow()
-        self.elapsed_time = -1
-
-    # pylint: disable=method-hidden ; actually it is not
-    def action(self, *_):
-        """Sends a watchdog message to SystemD based on given petition. This
-        function calls no callback.
-
-        .. versionadded:: 0.2.4-2
-        """
-        try:
-            if self.notify_watchdog:
-                if self.queue is not None:
-                    self.finish(0)
-                systemd.notify(r"WATCHDOG=1")
-            else:
-                self.finish(errno.EPERM)
-        except (EOFError, ConnectionError):
-            # watchdog did not succeed in time!
-            self.state = PetitionState.BROKEN
-            self.elapsed_time = self.creation_time - datetime.utcnow()
-
-    def terminate(self, _: Optional[int]) -> bool:
-        pass
+        ...
 
 
 @dataclass
@@ -483,6 +479,9 @@ class SignalingPetition(Petition):
     .. versionchanged:: 0.2.1
         Attributes do not have a default value, allowing subclasses to have also non-default
         attributes.
+
+    .. versionchanged:: 0.3.0
+        :attr:`pid` is now mandatory for finishing on-going petition
     """
 
     signal: int = field(compare=False)
@@ -493,37 +492,41 @@ class SignalingPetition(Petition):
 
     kill_parent: bool = field(compare=False)
     """
-    Whether to send the specific signal to the parent also.
+    Whether to send the specific signal to the parent also (it is, the PID itself, not only
+    its children). If unsure, set to :obj:`True`.
     """
 
-    def terminate(self, pid: Optional[int]) -> bool:
+    pid: Optional[int] = field(compare=False, init=False, default=None)
+    """
+    PID of the process to send the signal to. Can change during execution to match the
+    actual running process and is :obj:`None` by default, meaning that you **must** set
+    the value during :meth:`action` or any related call.
+
+    .. versionadded:: 0.3.0
+    """
+
+    def terminate(self) -> bool:
         """Sends the specified signal to the process and/or its parent.
 
-        Args:
-            pid (:obj:`int`): process identifier to send the signal to.
-
         Raises:
-            ValueError: if the ``pid`` is :obj:`None`.
+            :obj:`ValueError`: if the :attr:`pid` is :obj:`None`.
 
         Returns:
             :obj:`bool`: :obj:`True` if all children have been signaled correctly,
                 :obj:`False` otherwise.
-        """
-        valid = super().terminate(pid)
 
-        if pid is None and not valid:
+        .. versionchanged:: 0.3.0
+            :meth:`terminate` does not require anymore ``pid`` parameter.
+        """
+        if self.pid is None:
             raise ValueError(f'Petition of type "{type(self).__name__}" requires a valid PID')
 
-        return kill_proc_tree(pid, self.kill_parent, self.signal)
+        return kill_proc_tree(self.pid, self.kill_parent, self.signal)
 
 
 __all__ = [
-    "ActionCallbackT",
     "EmptyPetition",
-    "P",
     "Petition",
-    "ProcT",
-    "WatchdogPetition",
     "SignalingPetition",
     "PetitionState",
     "STOPPED_STATES",

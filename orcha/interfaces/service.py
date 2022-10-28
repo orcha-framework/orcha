@@ -30,16 +30,16 @@ from dataclasses import dataclass, field
 # noinspection PyCompatibility
 from pwd import getpwnam
 from sys import exit
-from typing import Iterable
 
 import daemon
 import daemon.pidfile
-import systemd.daemon
 from daemon import DaemonContext
 
 from orcha.utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
+    from typing import Iterable, Optional
+
     from orcha.lib import Manager
 
 
@@ -78,7 +78,7 @@ class ServiceWrapper:
     :see: :class:`Manager`
     """
 
-    context: DaemonContext = field(init=True, compare=False, hash=False, default=None)
+    context: Optional[DaemonContext] = field(init=True, compare=False, hash=False, default=None)
     """
     Context used for defining how the daemon will behave when started the process.
     If :obj:`None` (the default), this service will behave like a foreground service
@@ -97,10 +97,10 @@ log = get_logger()
 def register_service(
     manager: Manager,
     *,
-    pidfile: str = None,
-    fds: Iterable[int] = None,
-    user: str = None,
-    group: str = None,
+    pidfile: Optional[str] = None,
+    fds: Optional[Iterable[int]] = None,
+    user: Optional[str] = None,
+    group: Optional[str] = None,
     cwd: str = "/",
     stop_signal: int = signal.SIGTERM,
 ) -> ServiceWrapper:
@@ -151,7 +151,7 @@ def register_service(
     )
 
 
-def start_service(service: ServiceWrapper, do_notify: bool = True):
+def start_service(service: ServiceWrapper):
     """Helper function that starts the service as a demon or in the foreground,
     depending on :attr:`ServiceWrapper.context`.
 
@@ -171,28 +171,28 @@ def start_service(service: ServiceWrapper, do_notify: bool = True):
     if service.context is not None:
         with service.context:
             service.manager.serve()
-        exit(0)
+        return 0
+
+    ret = 0
 
     def do_shutdown(*_):
-        if do_notify:
-            systemd.daemon.notify("STOPPING=1")
-        service.manager.shutdown()
+        nonlocal ret
+        ret = service.manager.shutdown()
 
     # map signals when running on foreground
     signal.signal(signal.SIGTERM, do_shutdown)
     signal.signal(signal.SIGINT, do_shutdown)
 
-    ret = 0
     try:
         service.manager.start()
-        if do_notify:
-            systemd.daemon.notify("READY=1")
-
-        signal.pause()
+        service.manager.join()
+    except AttributeError:
+        # when joining it can happen that we are interrupted, so
+        # the manager can be `None` and thus the call raises an `AttributeError`,
+        # that we can safely ignore
+        ...
     except Exception as err:
         log.critical("unhandled exception while starting manager! %s", err, exc_info=True)
-        if do_notify:
-            systemd.daemon.notify("ERRNO=98")
         ret = 1
     finally:
         do_shutdown()

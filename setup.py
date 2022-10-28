@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="orcha",
-    version="0.2.6-2",
+    version="0.3.0-rc3",
     packages=[
         "orcha.bin",
         "orcha.exceptions",

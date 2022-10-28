@@ -23,17 +23,16 @@
 from __future__ import annotations
 
 import argparse
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Type, TypeVar
+
+from typing_extensions import final
 
 from ..utils.logging_utils import get_logger
 
-B = TypeVar("B", bound="BasePlugin")
-"""
-Type var that represents a :class:`BasePlugin` instance or any subclass
-that inherits from it
-"""
+if typing.TYPE_CHECKING:
+    from typing import Optional
 
 
 log = get_logger()
@@ -46,9 +45,9 @@ class BasePlugin(ABC):
 
     There are three exposed attributes:
 
-        + :attr:`name`, which is the name of the command.
-        + :attr:`aliases`, which are aliases for the command.
-        + :attr:`help`, which is a help string for the command.
+        - :attr:`name`, which is the name of the command.
+        - :attr:`aliases`, which are aliases for the command.
+        - :attr:`help`, which is a help string for the command.
 
     In order to the plugin to work, you just need to inherit from this class
     and define all the required properties, such as :attr:`name`. Orcha by
@@ -58,7 +57,7 @@ class BasePlugin(ABC):
         In order the above method to work, you **must follow** an strict
         import order/path in your application. If you have a look at the
         :func:`main <orcha.bin.main>`,
-        you will notice that two requirements must be fullfilled:
+        you will notice that two requirements must be fulfilled:
 
             1. Your plugin/module must be named as ``orcha_<YOUR_PLUGIN>`` so Orcha can find it.
             2. Your plugin/module must export the plugin class directly with the name ``plugin``.
@@ -126,18 +125,20 @@ class BasePlugin(ABC):
     aliases: tuple = field(init=False, default=())
     """Optional tuple containing aliases for your command"""
 
-    help: str = field(init=False, default=None)
+    help: Optional[str] = field(init=False, default=None)
     """
     Optional help string that will be shown when the user sets the "``--help``" option on
     your command
     """
 
+    @final
     def __init__(self, subparser):
         self._subparser = subparser
-        self.create_parser(self._parser)
+        self.create_parser(self.__parser)
 
     @property
-    def _parser(self) -> argparse.ArgumentParser:
+    @final
+    def __parser(self) -> argparse.ArgumentParser:
         kwargs = {
             "name": self.name,
             "aliases": self.aliases,
@@ -150,7 +151,7 @@ class BasePlugin(ABC):
         p.add_argument("--version", action="version", version=self.version())
         return p
 
-    def can_handle(self, owner: Type[B]) -> bool:
+    def can_handle(self, owner: BasePlugin) -> bool:
         """Returns whether if the plugin can handle the input command or not
 
         Args:
@@ -169,7 +170,6 @@ class BasePlugin(ABC):
         Args:
             parser (argparse.ArgumentParser): custom parser to work with Orcha
         """
-        ...
 
     @abstractmethod
     def handle(self, namespace: argparse.Namespace) -> int:
@@ -181,7 +181,6 @@ class BasePlugin(ABC):
         Returns:
             int: main application return code, if any
         """
-        ...
 
     @staticmethod
     @abstractmethod
@@ -196,7 +195,6 @@ class BasePlugin(ABC):
         Returns:
             str: the version identifier
         """
-        ...
 
 
-__all__ = ["BasePlugin", "B"]
+__all__ = ["BasePlugin"]

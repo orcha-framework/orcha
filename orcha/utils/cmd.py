@@ -25,20 +25,24 @@ from __future__ import annotations
 import shlex
 import signal
 import subprocess
-from typing import Any, Callable, Collection, Optional, Union
+import typing
 
 import psutil
 
 from .logging_utils import get_logger
+from .ops import nop
+
+if typing.TYPE_CHECKING:
+    from typing import Any, Callable, Optional, Sequence, Union
 
 log = get_logger()
 
 
 def run_command(
-    cmd: Union[str, Collection[str]],
-    on_start: Callable[[subprocess.Popen], Any] = None,
-    on_output: Callable[[str], Any] = None,
-    on_finish: Callable[[int], Any] = None,
+    cmd: Union[str, Sequence[str]],
+    on_start: Callable[[subprocess.Popen], Any] = nop,
+    on_output: Callable[[str], Any] = nop,
+    on_finish: Callable[[int], Any] = nop,
     cwd: Optional[str] = None,
 ) -> int:
     """
@@ -69,19 +73,6 @@ def run_command(
     Returns:
         int: command return code
     """
-
-    def empty(_):
-        pass
-
-    if on_start is None:
-        on_start = empty
-
-    if on_output is None:
-        on_output = empty
-
-    if on_finish is None:
-        on_finish = empty
-
     command = shlex.split(cmd) if isinstance(cmd, str) else cmd
     log.debug("$ %s", cmd)
     log.debug("> %s", command)
@@ -131,7 +122,7 @@ def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SI
 
         return True
     except psutil.NoSuchProcess:
-        log.warning("error while trying to kill proccess with id %d", pid)
+        log.warning("error while trying to kill process with id %d", pid)
         return True
     except psutil.AccessDenied:
         log.critical("orcha has no permissions for killing %d", pid)

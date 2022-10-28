@@ -25,27 +25,29 @@ Alongside with :class:`Manager <orcha.lib.Manager>`, it's the heart of the orche
 """
 from __future__ import annotations
 
+import errno
 import multiprocessing
 import random
-import subprocess
 import typing
-from queue import PriorityQueue, Queue
-from threading import Event, Lock, Thread
-from typing import Dict, List, Optional, Tuple, Union
+from contextlib import suppress
+from queue import Empty, PriorityQueue, Queue
+from threading import Lock, Thread
 
-import systemd.daemon as systemd
+from typing_extensions import final
 
 from orcha import properties
-from orcha.interfaces.message import Message
-from orcha.interfaces.petition import EmptyPetition, Petition, PetitionState
+from orcha.interfaces import EmptyPetition, Message, Petition, PetitionState
 from orcha.utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
+    from typing import Dict, List, Optional, Union
+
     from orcha.lib import Manager
 
 log = get_logger()
 
 
+@final
 class Processor:
     """
     :class:`Processor` is a **singleton** whose responsibility is to handle and manage petitions
@@ -102,7 +104,7 @@ class Processor:
 
     1. **Queues**
 
-    The point of having four :py:class:`queues <queue.Queue>` is that messages are travelling
+    The point of having four :py:class:`queues <queue.Queue>` is that messages are traveling
     across threads in a safe way. When a message is received from another process, there is
     some "black magic" going underneath the
     :py:class:`BaseManager <multiprocessing.managers.BaseManager>` class involving pipes, queues
@@ -181,6 +183,9 @@ class Processor:
         that defines if the processor shall create a background thread that takes care of
         notifying systemd about our status and, if dead, to restart us.
 
+    .. versionchanged:: 0.3.0
+        There is no ``notify_watchdog`` attribute, behavior is now leveraged to a pluggable.
+
     Args:
         queue (multiprocessing.Queue, optional): queue in which new :class:`Message` s are
                                                  expected to be. Defaults to :obj:`None`.
@@ -188,10 +193,6 @@ class Processor:
                                                    Defaults to :obj:`None`.
         manager (:class:`Manager`, optional): manager object used for synchronization and action
                                               calling. Defaults to :obj:`None`.
-        notify_watchdog (:obj:`bool`, optional): if the service is running under systemd,
-            notify periodically (every 5 seconds) that we are alive and doing things. If there
-            is any kind of unexpected error, a watchdog trigger will be set and the service
-            will be restarted.
 
         look_ahead (:obj:`int`, optional): amount of items to look ahead when querying the queue.
             Having a value higher than 1 allows the processor to access items further in the queue
@@ -215,31 +216,32 @@ class Processor:
 
     def __init__(
         self,
-        queue: multiprocessing.Queue = None,
-        finishq: multiprocessing.Queue = None,
+        queue: Optional[multiprocessing.Queue] = None,
+        finishq: Optional[multiprocessing.Queue] = None,
         manager: Optional[Manager] = None,
         look_ahead: int = 1,
-        notify_watchdog=False,
     ):
         if self.__must_init__:
-            if not all((queue, finishq, manager)):
-                raise ValueError("queue & manager objects cannot be empty during init")
+            if queue is None:
+                raise ValueError("queue must have a value during first initialization")
+            if finishq is None:
+                raise ValueError("finish queue must have a value during first initialization")
+            if manager is None:
+                raise ValueError("manager must have a value during first initialization")
 
             self._lock = Lock()
             self._queue = queue
             self._finishq = finishq
             self.manager = manager
             self.look_ahead = look_ahead
-            self._finished = Event()
+            self._finished = multiprocessing.Event()
             self.running = True
-            self.notify_watchdog = notify_watchdog
-            """Whether to notify SystemD Watchdog periodically to inform about our status"""
 
             self._internalq = PriorityQueue()
             self._signals = Queue()
             self._threads: List[Thread] = []
-            self._petitions: Dict[Optional[int], Tuple[int, Petition]] = {}
-            self._gc_event = Event()
+            self._petitions: Dict[Union[int, str], Petition] = {}
+            self._gc_event = multiprocessing.Event()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
             self._finished_t = Thread(target=self._signal_handler)
@@ -338,55 +340,81 @@ class Processor:
         log.debug("received petition for finish message with ID %s", m)
         self._finishq.put(m)
 
+    def _fatal_error(self, function: str, exception: BaseException):
+        log.fatal("unhandled exception at %s: %s", function, exception, exc_info=exception)
+        log.fatal("finishing orchestrator...")
+        self.running = False
+        self.manager.shutdown(errno.EINVAL)
+
     def _process(self):
-        log.debug("fixing internal digest key")
-        multiprocessing.current_process().authkey = properties.authkey
+        if properties.authkey is not None:
+            log.debug("fixing internal digest key")
+            multiprocessing.current_process().authkey = properties.authkey
+        else:
+            log.debug("skipping internal digest key fixing as authkey is not defined")
 
         try:
             while self.running:
                 log.debug("waiting for message...")
-                m = self._queue.get()
-                if m is not None:
-                    log.debug('converting message "%s" into a petition', m)
-                    p: Optional[Petition] = self.manager.convert_to_petition(m)
-                    if p is not None:
-                        log.debug("> %s", p)
-                        if self.is_running(p.id):
-                            log.warning("received message (%s) already running", p)
-                            p.queue.put(f'message with ID "{p.id}" is already running\n')
-                            p.queue.put(1)
+                with suppress(Empty):
+                    m: Optional[Message] = self._queue.get(timeout=properties.queue_timeout)
+                    if m is not None:
+                        log.debug('converting message "%s" into a petition', m)
+                        # make sure petition 'p' always exists
+                        p: Optional[Petition] = None
+                        try:
+                            p = self.manager.on_message_preconvert(m)
+                        except Exception as e:
+                            log.critical(
+                                'exception when trying to convert message "%s"! No errors '
+                                "are expected to happen when creating a petition",
+                                m,
+                            )
+                            log.warning(e)
+                            continue
+                        if p is not None:
+                            log.debug("> %s", p)
+                            self.manager.on_petition_create(p)
+                            if self.is_running(p.id):
+                                log.warning("received message (%s) already running", p)
+                                if p.queue is not None:
+                                    p.communicate(f'message with ID "{p.id}" is already running\n')
+                                    p.finish(1)
+                                continue
+                        else:
+                            log.debug('message "%s" is invalid, skipping...', m)
                             continue
                     else:
-                        log.debug('message "%s" is invalid, skipping...', m)
-                        continue
-                else:
-                    p = EmptyPetition()
-                p.state = PetitionState.ENQUEUED
-                self._petitions[p.id] = None, p
-                self._internalq.put(p)
+                        p = EmptyPetition()
+                    self._petitions[p.id] = p
+                    if not p.state.is_in_broken_state:
+                        p.state = PetitionState.ENQUEUED
+                        self._internalq.put(p)
+                    else:
+                        self._do_signal(p.id)
         except Exception as e:
-            log.fatal("unhandled exception: %s", e)
-            self.running = False
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
-                systemd.notify("WATCHDOG=trigger")
+            self._fatal_error("message processor thread", e)
 
     def _internal_process(self):
         try:
+            last_seen_petition = None
             while self.running:
                 log.debug("waiting for internal petition...")
                 empty = False
                 items_to_enqueue = []
                 log.debug("looking ahead %d items", self.look_ahead)
+                last_petition = 0
                 for i in range(1, self.look_ahead + 1):
-                    p: Petition = self._internalq.get()
-                    if not isinstance(p, EmptyPetition):
-                        log.debug('adding petition "%s" to list of possible petitions', p)
-                        items_to_enqueue.append(p)
-                    else:
-                        log.debug("received empty petition")
-                        empty = True
-                        break
+                    with suppress(Empty):
+                        p: Petition = self._internalq.get(timeout=properties.queue_timeout)
+                        if not isinstance(p, EmptyPetition):
+                            log.debug('adding petition "%s" to list of possible petitions', p)
+                            items_to_enqueue.append(p)
+                            last_petition = p.id
+                        else:
+                            log.debug("received empty petition")
+                            empty = True
+                            break
 
                     if i > self._internalq.qsize():
                         break
@@ -397,30 +425,23 @@ class Processor:
                     launch_t.start()
                     self._threads.append(launch_t)
 
-                if not empty:
+                if not empty and last_seen_petition == last_petition:
                     self.wait(random.uniform(0.5, 5))
+
+                last_seen_petition = last_petition
             log.debug("internal process handler finished")
 
         except Exception as e:
-            log.fatal("unhandled exception: %s", e)
-            self.running = False
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
-                systemd.notify("WATCHDOG=trigger")
+            self._fatal_error("petition processor thread", e)
 
     def _start(self, p: Petition):
         log.debug('launching petition "%s"', p)
 
-        def assign_pid(proc: Union[subprocess.Popen, int]):
-            pid = proc if isinstance(proc, int) else proc.pid
-            log.debug('assigning pid to "%s"', pid)
-            self._petitions[p.id] = pid, p
-
         try:
             healthy = self.manager.start_petition(p)
         except Exception as e:
-            p.state = PetitionState.BROKEN
             log.critical("Unable to start petition %s with error: %s", p, e)
+            p.state = PetitionState.BROKEN
             healthy = False
 
         if not healthy and p.state.is_enqueued:
@@ -432,11 +453,12 @@ class Processor:
         log.debug('petition "%s" satisfied condition', p)
         try:
             if healthy:
-                p.action(assign_pid, p)
+                p.action(p)
         except Exception as e:
             log.warning(
                 'unhandled exception while running petition "%s" -> "%s"', p, e, exc_info=True
             )
+            p.state = PetitionState.BROKEN
         finally:
             log.debug('petition "%s" finished, triggering callbacks', p)
             self._petitions.pop(p.id, None)
@@ -447,73 +469,84 @@ class Processor:
             self._gc_event.set()
 
     def _signal_handler(self):
-        log.debug("fixing internal digest key")
-        multiprocessing.current_process().authkey = properties.authkey
+        if properties.authkey is not None:
+            log.debug("fixing internal digest key")
+            multiprocessing.current_process().authkey = properties.authkey
+        else:
+            log.debug("skipping internal digest key fixing as authkey is not defined")
 
         try:
             while self.running:
                 log.debug("waiting for finish message...")
-                m = self._finishq.get()
-                self._signals.put(m)
+                with suppress(Empty):
+                    m = self._finishq.get(timeout=properties.queue_timeout)
+                    self._signals.put(m)
         except Exception as e:
-            log.fatal("unhandled exception: %s", e)
-            self.running = False
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
-                systemd.notify("WATCHDOG=trigger")
+            self._fatal_error("signal processor thread", e)
+
+    def _do_signal(self, id: Union[int, str]):
+        petition = self._petitions.pop(id)
+        finish_t = Thread(target=self._finish, args=(id, petition))
+        finish_t.start()
+        self._threads.append(finish_t)
 
     def _internal_signal_handler(self):
         try:
             while self.running:
                 log.debug("waiting for internal signal...")
-                m = self._signals.get()
-                if isinstance(m, Message):
-                    m = m.id
+                with suppress(Empty):
+                    m = self._signals.get(timeout=properties.queue_timeout)
+                    if isinstance(m, Message):
+                        m = m.id
 
-                if m is not None:
-                    log.debug('received signal petition for message with ID "%s"', m)
-                    if m not in self._petitions:
-                        log.warning('message with ID "%s" not found or not running!', m)
-                        continue
+                    if m is not None:
+                        log.debug('received signal petition for message with ID "%s"', m)
+                        if m not in self._petitions:
+                            log.warning('message with ID "%s" not found or not running!', m)
+                            continue
 
-                    pid, petition = self._petitions[m]
-                    finish_t = Thread(target=self._finish, args=(m, pid, petition))
-                    finish_t.start()
-                    self._threads.append(finish_t)
+                        self._do_signal(m)
         except Exception as e:
-            log.fatal("unhandled exception: %s", e)
-            self.running = False
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception: {e}")
-                systemd.notify("WATCHDOG=trigger")
+            self._fatal_error("signal handler thread", e)
 
-    def _finish(self, id: Union[str, int], pid: Optional[int], p: Petition):
+    def _finish(self, id: Union[str, int], p: Petition):
         try:
-            if not p.terminate(pid):
+            if p.state.is_stopped:
+                raise ValueError(
+                    "Cannot terminate a petition whose state is either FINISHED, PENDING or BROKEN"
+                )
+
+            # if we are called, our state is now CANCELLED
+            if p.state.is_in_running_state:
+                p.state = PetitionState.CANCELLED
+            else:
+                raise AttributeError(f"Unknown petition state: {p.state}")
+
+            if not p.terminate():
                 raise RuntimeError(f'Failed to finish petition instance "{type(p).__name__}"')
+
         except Exception as e:
-            p.communicate(f"Failed to finish petition with ID {p.id}\n")
-            p.communicate(f"{e}\n")
+            if p.queue is not None:
+                p.communicate(f"Failed to finish petition with ID {p.id}\n")
+                p.communicate(f"{e}\n")
         finally:
-            p.finish()
-            self._petitions.pop(id, None)
+            self.manager.finish_petition(p)
+            if p.queue is not None:
+                p.finish()
+
             self._gc_event.set()
 
     def _gc(self):
         try:
             while self.running:
-                self._gc_event.wait()
-                self._gc_event.clear()
-                for thread in self._threads:
-                    if not thread.is_alive():
-                        log.debug('pruning thread "%s"', thread)
-                        self._threads.remove(thread)
+                if self._gc_event.wait(timeout=10.0):
+                    self._gc_event.clear()
+                    for thread in self._threads:
+                        if not thread.is_alive():
+                            log.debug('pruning thread "%s"', thread)
+                            self._threads.remove(thread)
         except Exception as e:
-            log.fatal("unhandled exception: %s", e)
-            self.running = False
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
-                systemd.notify("WATCHDOG=trigger")
+            self._fatal_error("garbage collector thread", e)
 
     def shutdown(self):
         """
@@ -527,29 +560,35 @@ class Processor:
             self.running = False
             self._queue.put(None)
             self._finishq.put(None)
-            self._gc_event.set()
+
+            # self._queue.close()
+            # self._finishq.close()
 
             log.info("waiting for pending processes...")
-            self._process_t.join()
-            self._internal_t.join()
+            self._process_t.join(timeout=5)
+            self._internal_t.join(timeout=5)
 
             log.info("waiting for pending signals...")
-            self._finished_t.join()
-            self._signal_t.join()
+            self._finished_t.join(timeout=5)
+            self._signal_t.join(timeout=5)
 
-            log.info("waiting for garbage collector...")
-            self._gc_t.join()
+            log.info("finishing all registered petitions...")
+            # we need to "cast" the dictionary to a set so we can alter its size while iterating
+            for id in set(self._petitions):
+                self._do_signal(id)
 
             log.info("waiting for pending operations...")
             for thread in self._threads:
-                thread.join()
+                thread.join(timeout=30)
+
+            log.info("waiting for garbage collector...")
+            self._gc_event.set()
+            self._gc_t.join(timeout=5)
 
             log.info("finished")
         except Exception as e:
             log.critical("unexpected error during shutdown! -> %s", e, exc_info=True)
-            if self.notify_watchdog:
-                systemd.notify(f"STATUS=Failure due to unexpected exception - {e}")
-                systemd.notify("WATCHDOG=trigger")
+            raise
 
 
 __all__ = ["Processor"]

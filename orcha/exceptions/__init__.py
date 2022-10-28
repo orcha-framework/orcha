@@ -21,5 +21,6 @@
 #                                    SOFTWARE.
 """Orcha globally used exceptions"""
 from .shutdown import ManagerShutdownError
+from .state import InvalidStateError
 
-__all__ = ["ManagerShutdownError"]
+__all__ = ["ManagerShutdownError", "InvalidStateError"]

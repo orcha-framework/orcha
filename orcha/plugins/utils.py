@@ -24,16 +24,18 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import List, Type
+import typing
 
 from ..utils.logging_utils import get_logger
-from .base import B, BasePlugin
-from .embedded import PLUGIN_LIST
+from .base import BasePlugin
+
+if typing.TYPE_CHECKING:
+    from typing import List, Optional, Type
 
 log = get_logger()
 
 
-def query_plugins() -> List[Type[B]]:
+def query_plugins() -> List[Type[BasePlugin]]:
     """
     Query all installed plugins on the system. Notice that plugins must start with the
     prefix ``orcha_`` and must export an object with name ``plugin`` which holds a reference
@@ -48,9 +50,9 @@ def query_plugins() -> List[Type[B]]:
         for _, name, _ in pkgutil.iter_modules()
         if name.startswith("orcha_")
     }
-    plugins = list(PLUGIN_LIST)
+    plugins = []
     for plugin, mod in discovered_plugins.items():
-        pl: Type[B] = getattr(mod, "plugin", None)
+        pl: Optional[Type[BasePlugin]] = getattr(mod, "plugin", None)
         if pl is None:
             log.warning(
                 'invalid plugin specified for "%s". '

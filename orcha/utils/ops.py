@@ -1,6 +1,6 @@
 #                                   MIT License
 #
-#              Copyright (c) 2021 Javier Alonso <jalonso@teldat.com>
+#              Copyright (c) 2022 Javier Alonso <jalonso@teldat.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to deal
@@ -19,31 +19,30 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""
-Modules used alongside Orcha environment. This package contains the core of the
-orchestrator itself, exposing two main classes:
+"""Arbitrary operations done by the orchestrator"""
+from __future__ import annotations
 
-  + :class:`Manager`, for handling requests and petitions.
-  + :class:`Processor`, which receives requests and manages executions.
+import typing
 
-A plugin/package must inherit from :class:`Manager` and define its own behavior
-either as a server or as a client. Further details are exposed in there.
+if typing.TYPE_CHECKING:
+    from typing import Callable, TypeVar
 
-:class:`Processor` is automatically defined based on the expected behavior of
-:class:`Manager`, so there is no need to inherit from that class.
+    T = TypeVar("T")  # Any type.
 
-Note:
-    :class:`Processor` is a singleton, which means that **only exists an instance**.
-    This way, you can call the constructor after initialized as much as you want
-    that you will get always the same object. This helps to handle the messages,
-    signals and other petitions globally on the system without any collision in
-    between them
 
---------
-"""
+def nopr(o: T) -> Callable[..., T]:
+    """
+    Does nothing but actually returns the given value.
+    Args:
+        o (T): the value to return
+    Returns:
+        A function that returns
+    """
 
-from .manager import ClientManager, Manager
-from .pluggable import Pluggable
-from .processor import Processor
+    def _nop(*_, **__) -> T:
+        return o
 
-__all__ = ["Manager", "Processor", "ClientManager", "Pluggable"]
+    return _nop
+
+
+nop = nopr(None)

@@ -1,4 +1,12 @@
-python3-orcha (0.2.6-2) UNRELEASED; urgency=high
+python3-orcha (0.3.0-rc3) unstable; urgency=critical
+
+  * Third release candidate for Orcha, adding support for Pluggable interface.
+    This release is **not backward compatible** as some methods/functions are
+    deprecated or have changed completely.
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 27 Oct 2022 16:26:00 +0200
+
+python3-orcha (0.2.6-2) unstable; urgency=high
 
   * Fix a race condition when calling "condition" and then "on_start" that
     could lead to potential issues as a condition may evaluate to true but

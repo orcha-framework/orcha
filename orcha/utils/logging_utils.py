@@ -26,6 +26,8 @@ import logging
 import os
 from sys import stdout
 
+from .nameable import Nameable
+
 # Default format to use when logging messages:
 # <LEVEL NAME>:    <MESSAGE>
 LOG_DEFAULT_FORMAT = "%(levelname)s: %(message)s"
@@ -34,14 +36,17 @@ LOG_DEFAULT_FORMAT = "%(levelname)s: %(message)s"
 LOGGER_NAME = r"orcha-logger"
 
 
-def get_logger() -> logging.Logger:
+def get_logger(name: str = LOGGER_NAME) -> logging.Logger:
     """Generates (or returns) an existing logger from the system
     that should be used globally on this program.
+
+    Args:
+        name (:obj:`str`): logger name. Defaults to ``LOGGER_NAME`` (system logger).
 
     Returns:
         logging.Logger: the system logger
     """
-    log = logging.getLogger(LOGGER_NAME)
+    log = logging.getLogger(name)
 
     # as we have set no `basicConfig`, newly created loggers
     # will evaluate this to False. If it existed, then it will
@@ -52,6 +57,11 @@ def get_logger() -> logging.Logger:
     formatter = logging.Formatter(LOG_DEFAULT_FORMAT)
     handler = logging.StreamHandler(stream=stdout)
     level = os.environ.get("LOG_LEVEL", "INFO")
+    # we try to access name specific log level by querying the UPPER
+    # environment variable
+    if name != LOGGER_NAME:
+        level = os.environ.get(f"{name.upper()}_LOG_LEVEL", level)
+
     handler.setLevel(level)
     handler.setFormatter(formatter)
 
@@ -59,3 +69,16 @@ def get_logger() -> logging.Logger:
     log.setLevel(level)
 
     return log
+
+
+def get_class_logger(o: Nameable) -> logging.Logger:
+    """Generates (or returns) an existing logger from the system
+    that is attached to the given class, using its name for accessing
+    class-related variables.
+
+    Returns:
+        logging.Logger: class-level logger
+
+    .. versionadded:: 0.3.0
+    """
+    return get_logger(o.classname())
