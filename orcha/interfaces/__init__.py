@@ -29,6 +29,7 @@ from .petition import (
     EmptyPetition,
     Petition,
     PetitionState,
+    Placeholder,
     SignalingPetition,
 )
 from .service import ServiceWrapper, register_service, start_service
@@ -50,4 +51,5 @@ __all__ = [
     "notimplemented",
     "is_implemented",
     "Bool",
+    "Placeholder",
 ]

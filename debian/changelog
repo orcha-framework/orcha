@@ -1,3 +1,10 @@
+python3-orcha (0.3.0-rc4) unstable; urgency=critical
+
+  * Refactor of Orcha's internals so it uses less mutual exclusion zones
+    and ensures better performance when handling high load demands
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 3 Nov 2022 10:58:00 +0100
+
 python3-orcha (0.3.0-rc3) unstable; urgency=critical
 
   * Third release candidate for Orcha, adding support for Pluggable interface.

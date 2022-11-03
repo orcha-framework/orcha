@@ -153,14 +153,12 @@ considered to be broken, it is, failed during execution, start, etc.
 .. versionadded:: 0.2.5
 """
 
-VALID_STATES: Dict[PetitionState, Set[PetitionState]] = {
+VALID_TRANSITIONS: Dict[PetitionState, Set[PetitionState]] = {
     PetitionState.PENDING: {PetitionState.BROKEN, PetitionState.ENQUEUED},
     PetitionState.ENQUEUED: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.RUNNING},
-    PetitionState.CANCELLED: {
-        PetitionState.BROKEN,
-    },
     PetitionState.RUNNING: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.FINISHED},
     PetitionState.FINISHED: {PetitionState.BROKEN, PetitionState.DONE},
+    PetitionState.CANCELLED: {PetitionState.BROKEN},
     PetitionState.DONE: set(),
     PetitionState.BROKEN: set(),
 }
@@ -313,10 +311,10 @@ class Petition(ABC):
 
         .. versionchanged:: 0.3.0:: This field is now a property
         """
-        if state not in VALID_STATES[self.__state__]:
+        if state != self.__state__ and state not in VALID_TRANSITIONS[self.__state__]:
             raise InvalidStateError(
                 f'Cannot go to state "{self.__state__.name}" from current state "{state.name}" '
-                f'"[{self.__state__.name} --x-> {state.name}]'
+                f'"[{self.__state__.name} --X-> {state.name}]'
             )
 
         self.__state__ = state
@@ -524,6 +522,22 @@ class SignalingPetition(Petition):
         return kill_proc_tree(self.pid, self.kill_parent, self.signal)
 
 
+@final
+@dataclass(init=False)
+class Placeholder(Petition):
+    """Placeholder petition that simply stores the state"""
+
+    priority = float("inf")
+    queue = None
+    action = nop
+    condition = nopr(True)
+    terminate = nopr(True)
+
+    # pylint: disable=super-init-not-called
+    def __init__(self, id: Union[int, str]):
+        self.id = id
+
+
 __all__ = [
     "EmptyPetition",
     "Petition",
@@ -532,4 +546,5 @@ __all__ = [
     "STOPPED_STATES",
     "RUNNING_STATES",
     "BROKEN_STATES",
+    "Placeholder",
 ]

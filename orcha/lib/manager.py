@@ -175,7 +175,8 @@ class Manager(Pluggable):
             cause starvation in processes.
 
     .. versionchanged:: 0.3.0
-        There is no more ``notify_watchdog`` parameter
+        There is no more ``notify_watchdog`` parameter as everything has been moved into the
+        :obj:`Pluggable <orcha.lib.Pluggable>` interface.
     """
 
     # pylint: disable=super-init-not-called
@@ -263,6 +264,7 @@ class Manager(Pluggable):
 
         self._processor = processor
 
+    @final
     def connect(self) -> bool:
         """
         Connects to an existing :class:`Manager` when acting as a client. This
@@ -376,6 +378,7 @@ class Manager(Pluggable):
 
         return err
 
+    @final
     def join(self):
         """
         Waits until the internal :py:class:`SyncManager <multiprocessing.managers.SyncManager>`
@@ -431,6 +434,7 @@ class Manager(Pluggable):
 
         setattr(self, name, temp)
 
+    @final
     def send(self, message: Message):
         """Sends a :class:`Message <orcha.interface.Message>` to the server manager.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -447,6 +451,7 @@ class Manager(Pluggable):
                                   has been tried to enqueue.
         """
 
+    @final
     def finish(self, message: Union[Message, int, str]):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
@@ -508,9 +513,9 @@ class Manager(Pluggable):
         """With the given arg, returns whether the petition is already
         running or not yet. Its state can be:
 
-            + Enqueued but not executed yet.
-            + Executing right now.
-            + Executed and finished.
+            - Enqueued but not executed yet.
+            - Executing right now.
+            - Executed and finished.
 
         .. versionchanged:: 0.1.6
            Attribute :attr:`x` now supports a string as the ID.
@@ -550,10 +555,6 @@ class Manager(Pluggable):
 
         raise NotImplementedError()
 
-    def __del__(self):
-        if not self._is_client and not self._shutdown.is_set():
-            warn('"shutdown()" not called! There can be leftovers pending to remove')
-
     @abstractmethod
     def convert_to_petition(self, m: Message) -> Optional[Petition]:
         """With the given message, returns the corresponding :class:`Petition` object
@@ -569,6 +570,15 @@ class Manager(Pluggable):
         Returns:
             Optional[Petition]: the converted petition, if valid
         """
+
+    @final
+    def check(self, petition: Petition) -> bool:
+        return (
+            not self._is_client
+            and petition.state.is_enqueued
+            and not self.is_running(petition)
+            and self.on_petition_check(petition, petition.condition(petition))
+        )
 
     @final
     def start_petition(self, petition: Petition) -> bool:
@@ -605,25 +615,21 @@ class Manager(Pluggable):
             :class:`Processor <orcha.lib.Processor>` will check for both healthiness and state
             for re-enqueuing the petition again when the condition was not satisfied.
         """
+        if self._is_client:
+            raise NotImplementedError()
+
+        with self._set_lock:
+            self._enqueued_messages.add(petition.id)
+
         with self._petition_lock:
-            if (
-                not self._is_client
-                and petition.state.is_enqueued
-                and not self.is_running(petition)
-                and self.on_petition_check(petition, petition.condition(petition))
-            ):
-                with self._set_lock:
-                    self._enqueued_messages.add(petition.id)
+            self.on_petition_start(petition)
+            # if some plugin starts the petition, skip the `on_start` call
+            if petition.state.is_enqueued:
+                petition.state = PetitionState.RUNNING
+                return self.on_start(petition)
 
-                self.on_petition_start(petition)
-                # if some plugin starts the petition, skip the `on_start` call
-                if petition.state.is_enqueued:
-                    petition.state = PetitionState.RUNNING
-                    return self.on_start(petition)
-
-                # petition is already running by any of the plugins
-                return petition.state.is_running
-        return False
+            # petition is already running by any of the plugins
+            return petition.state.is_running
 
     @abstractmethod
     def on_start(self, petition: Petition) -> bool:
@@ -688,20 +694,21 @@ class Manager(Pluggable):
             petition (:obj:`Petition <orcha.interfaces.Petition>`): petition that is about
                 to be started.
         """
-        if not self._is_client:
-            if self.is_running(petition):
-                with self._set_lock:
-                    self._enqueued_messages.remove(petition.id)
-                    if not (
-                        petition.state.has_been_cancelled or petition.state.is_in_broken_state
-                    ):
-                        petition.state = PetitionState.FINISHED
+        if self._is_client:
+            raise NotImplementedError()
 
-                with self._petition_lock:
-                    self.on_petition_finish(petition)
-                    # if some plugin finishes the petition, skip the `on_finish` call
-                    if not petition.state.is_done:
-                        self.on_finish(petition)
+        if self.is_running(petition):
+            with self._set_lock:
+                self._enqueued_messages.remove(petition.id)
+
+            with self._petition_lock:
+                if not (petition.state.has_been_cancelled or petition.state.is_in_broken_state):
+                    petition.state = PetitionState.FINISHED
+
+                self.on_petition_finish(petition)
+                # if some plugin finishes the petition, skip the `on_finish` call
+                if not petition.state.is_done:
+                    self.on_finish(petition)
 
     @abstractmethod
     def on_finish(self, petition: Petition):
@@ -747,6 +754,7 @@ class Manager(Pluggable):
 
         self._tmp_plugs.append(plug)
 
+    @final
     def run_hooks(self, name: str, *args, **kwargs):
         for plug in self._plugs:
             if not hasattr(plug, name):
@@ -807,6 +815,10 @@ class Manager(Pluggable):
 
             if petition.state.is_done:
                 break
+
+    def __del__(self):
+        if not self._is_client and not self._shutdown.is_set():
+            warn('"shutdown()" not called! There can be leftovers pending to remove')
 
 
 class ClientManager(Manager):

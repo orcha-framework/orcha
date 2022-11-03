@@ -29,6 +29,7 @@ import errno
 import multiprocessing
 import random
 import typing
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from queue import Empty, PriorityQueue, Queue
 from threading import Lock, Thread
@@ -36,8 +37,14 @@ from threading import Lock, Thread
 from typing_extensions import final
 
 from orcha import properties
-from orcha.interfaces import EmptyPetition, Message, Petition, PetitionState
-from orcha.utils.logging_utils import get_logger
+from orcha.interfaces import (
+    EmptyPetition,
+    Message,
+    Petition,
+    PetitionState,
+    Placeholder,
+)
+from orcha.utils import get_logger, nop
 
 if typing.TYPE_CHECKING:
     from typing import Dict, List, Optional, Union
@@ -237,6 +244,7 @@ class Processor:
             self._finished = multiprocessing.Event()
             self.running = True
 
+            self._executor = ThreadPoolExecutor(max_workers=properties.max_workers)
             self._internalq = PriorityQueue()
             self._signals = Queue()
             self._threads: List[Thread] = []
@@ -359,6 +367,10 @@ class Processor:
                 with suppress(Empty):
                     m: Optional[Message] = self._queue.get(timeout=properties.queue_timeout)
                     if m is not None:
+                        if self.is_running(m.id):
+                            log.warning("received message (%s) already running", m)
+                            continue
+                        self._petitions[m.id] = Placeholder(m.id)
                         log.debug('converting message "%s" into a petition', m)
                         # make sure petition 'p' always exists
                         p: Optional[Petition] = None
@@ -371,19 +383,16 @@ class Processor:
                                 m,
                             )
                             log.warning(e)
+                            self._petitions.pop(m.id)
                             continue
                         if p is not None:
                             log.debug("> %s", p)
                             self.manager.on_petition_create(p)
-                            if self.is_running(p.id):
-                                log.warning("received message (%s) already running", p)
-                                if p.queue is not None:
-                                    p.communicate(f'message with ID "{p.id}" is already running\n')
-                                    p.finish(1)
-                                continue
                         else:
                             log.debug('message "%s" is invalid, skipping...', m)
+                            self._petitions.pop(m.id)
                             continue
+                        p.state = self._petitions[p.id].state
                     else:
                         p = EmptyPetition()
                     self._petitions[p.id] = p
@@ -395,22 +404,74 @@ class Processor:
         except Exception as e:
             self._fatal_error("message processor thread", e)
 
+    def _on_petition_done_callback(self, p: Petition):
+        def callback(future: Future):
+            if not future.done():
+                raise AttributeError(
+                    "this function is expected to be a callback to a finished future!"
+                )
+
+            ex = future.exception()
+            if ex is not None:
+                log.warning(
+                    'unhandled exception while running petition "%s" -> "%s"',
+                    p,
+                    ex,
+                    exc_info=ex,
+                )
+                p.state = PetitionState.BROKEN
+
+            log.debug('petition "%s" finished, triggering callbacks', p)
+            self._petitions.pop(p.id, None)
+
+            self.manager.finish_petition(p)
+
+        return callback
+
+    def _do_start(self, p: Petition):
+        # Petition's condition is checked before this call
+        log.debug('launching petition "%s"', p)
+        try:
+            healthy = self.manager.start_petition(p)
+        except Exception as e:
+            log.critical("Unable to start petition %s with error: %s", p, e)
+            p.state = PetitionState.BROKEN
+            healthy = False
+
+        f = self._executor.submit(p.action, p) if healthy else self._executor.submit(nop)
+        f.add_done_callback(self._on_petition_done_callback(p))
+
     def _internal_process(self):
         try:
             last_seen_petition = None
             while self.running:
-                log.debug("waiting for internal petition...")
+                log.debug("waiting for next %d internal petition(s)...", self.look_ahead)
                 empty = False
-                items_to_enqueue = []
-                log.debug("looking ahead %d items", self.look_ahead)
                 last_petition = 0
+                unsuccessful_petitions = []
                 for i in range(1, self.look_ahead + 1):
                     with suppress(Empty):
                         p: Petition = self._internalq.get(timeout=properties.queue_timeout)
                         if not isinstance(p, EmptyPetition):
                             log.debug('adding petition "%s" to list of possible petitions', p)
-                            items_to_enqueue.append(p)
-                            last_petition = p.id
+                            try:
+                                ret = self.manager.check(p)
+                            except Exception as e:
+                                p.state = PetitionState.BROKEN
+                                log.warning(
+                                    'unhandled exception while checking petition "%s": %s',
+                                    p,
+                                    e,
+                                    exc_info=e,
+                                )
+                            else:
+                                last_petition = p.id
+                                if ret:
+                                    self._do_start(p)
+                                    break
+                                # ignore all possible broken/cancelled petitions
+                                if p.state.is_enqueued:
+                                    unsuccessful_petitions.append(p)
                         else:
                             log.debug("received empty petition")
                             empty = True
@@ -419,11 +480,11 @@ class Processor:
                     if i > self._internalq.qsize():
                         break
 
-                for item in items_to_enqueue:
-                    log.debug('creating thread for petition "%s"', item)
-                    launch_t = Thread(target=self._start, args=(item,))
-                    launch_t.start()
-                    self._threads.append(launch_t)
+                for petition in unsuccessful_petitions:
+                    log.debug(
+                        'petition "%s" did not satisfy the condition, re-adding to queue', petition
+                    )
+                    self._internalq.put(petition)
 
                 if not empty and last_seen_petition == last_petition:
                     self.wait(random.uniform(0.5, 5))
@@ -433,40 +494,6 @@ class Processor:
 
         except Exception as e:
             self._fatal_error("petition processor thread", e)
-
-    def _start(self, p: Petition):
-        log.debug('launching petition "%s"', p)
-
-        try:
-            healthy = self.manager.start_petition(p)
-        except Exception as e:
-            log.critical("Unable to start petition %s with error: %s", p, e)
-            p.state = PetitionState.BROKEN
-            healthy = False
-
-        if not healthy and p.state.is_enqueued:
-            log.debug('petition "%s" did not satisfy the condition, re-adding to queue', p)
-            self._internalq.put(p)
-            self._gc_event.set()
-            return
-
-        log.debug('petition "%s" satisfied condition', p)
-        try:
-            if healthy:
-                p.action(p)
-        except Exception as e:
-            log.warning(
-                'unhandled exception while running petition "%s" -> "%s"', p, e, exc_info=True
-            )
-            p.state = PetitionState.BROKEN
-        finally:
-            log.debug('petition "%s" finished, triggering callbacks', p)
-            self._petitions.pop(p.id, None)
-
-            self.manager.finish_petition(p)
-
-            # set garbage collector flag to cleanup ourselves
-            self._gc_event.set()
 
     def _signal_handler(self):
         if properties.authkey is not None:
@@ -486,7 +513,7 @@ class Processor:
 
     def _do_signal(self, id: Union[int, str]):
         petition = self._petitions.pop(id)
-        finish_t = Thread(target=self._finish, args=(id, petition))
+        finish_t = Thread(target=self._finish, args=(petition,))
         finish_t.start()
         self._threads.append(finish_t)
 
@@ -509,7 +536,7 @@ class Processor:
         except Exception as e:
             self._fatal_error("signal handler thread", e)
 
-    def _finish(self, id: Union[str, int], p: Petition):
+    def _finish(self, p: Petition):
         try:
             if p.state.is_stopped:
                 raise ValueError(
@@ -580,6 +607,9 @@ class Processor:
             log.info("waiting for pending operations...")
             for thread in self._threads:
                 thread.join(timeout=30)
+
+            log.info("closing all running threads...")
+            self._executor.shutdown()
 
             log.info("waiting for garbage collector...")
             self._gc_event.set()

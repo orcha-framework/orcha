@@ -7,6 +7,6 @@ Type=notify
 NotifyAccess=main
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/orcha.d/orcha-%i.env
-ExecStart=/usr/bin/orcha $LAUNCH_OPTS --systemd watchdog $WD_OPTIONS
+ExecStart=/usr/bin/orcha $LAUNCH_OPTS watchdog $WD_OPTIONS
 PrivateTmp=true
 ProtectSystem=true

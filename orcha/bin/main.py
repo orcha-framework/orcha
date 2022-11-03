@@ -52,6 +52,7 @@ def main():
                               This field is not mandatory but **it is recommended to define it**
                               as it will be necessary for other processes to communicate with the
                               service itself.
+    --max-workers N           maximum concurrent tasks that can be run simultaneously.
 
     The application automatically detects the plugins that are installed in the system. It
     is important that the installed plugins follows the name convention in order to be
@@ -61,19 +62,23 @@ def main():
     Returns:
         int: execution return code. Multiple return codes are possible:
 
-              + ``0`` means that the execution was successful.
-              + ``1`` refers to a standard error happened during execution.
-              + ``127`` indicates that no plugins were found or no plugins
+              - ``0`` means that the execution was successful.
+              - ``1`` refers to a standard error happened during execution.
+              - ``127`` indicates that no plugins were found or no plugins
                 can handle the parsed command line options.
 
     .. versionchanged:: 0.1.11
-        + ``key`` parameter is now required, the internally generated one won't be used anymore.
-        + Orcha clients in Python <= 3.7 now have their internal digest fixed, not throwing an
+        - ``key`` parameter is now required, the internally generated one won't be used anymore.
+        - Orcha clients in Python <= 3.7 now have their internal digest fixed, not throwing an
           exception anymore.
 
     .. versionchanged:: 0.1.12
-        + ``key`` parameter is not mandatory (again) - some plugins may not require it for
+        - ``key`` parameter is not mandatory (again) - some plugins may not require it for
           their basic functionality.
+
+    .. versionadded:: 0.3.0
+        There is a new attribute called ``max-workers`` that allows limiting how many
+        concurrent tasks will be run.
     """
     parser = argparse.ArgumentParser(
         description="Orcha command line utility for handling services",
@@ -100,6 +105,13 @@ def main():
         default=None,
         help="Authentication key used for verifying clients",
     )
+    parser.add_argument(
+        "--max-workers",
+        metavar="N",
+        type=int,
+        default=None,
+        help="Maximum concurrent tasks that can be run simultaneously",
+    )
     parser.add_argument("--version", action="version", version=f"orcha - {version('orcha')}")
     subparsers = parser.add_subparsers(
         title="available commands",
@@ -116,6 +128,7 @@ def main():
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
     orcha.properties.port = args.port
+    orcha.properties.max_workers = args.max_workers
     if args.key is not None:
         orcha.properties.authkey = args.key.encode()
         log.debug("fixing internal digest key")
