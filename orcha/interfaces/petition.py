@@ -158,7 +158,7 @@ VALID_TRANSITIONS: Dict[PetitionState, Set[PetitionState]] = {
     PetitionState.ENQUEUED: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.RUNNING},
     PetitionState.RUNNING: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.FINISHED},
     PetitionState.FINISHED: {PetitionState.BROKEN, PetitionState.DONE},
-    PetitionState.CANCELLED: {PetitionState.BROKEN},
+    PetitionState.CANCELLED: {PetitionState.BROKEN, PetitionState.DONE},
     PetitionState.DONE: set(),
     PetitionState.BROKEN: set(),
 }
