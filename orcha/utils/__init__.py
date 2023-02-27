@@ -21,7 +21,7 @@
 #                                    SOFTWARE.
 """Multiple utilities used across Orcha environment"""
 
-from .cmd import kill_proc_tree, run_command
+from .cmd import run_command
 from .logging_utils import LOGGER_NAME, get_class_logger, get_logger
 from .nameable import Nameable
 from .ops import nop, nopr
@@ -29,7 +29,6 @@ from .packages import version
 
 __all__ = [
     "run_command",
-    "kill_proc_tree",
     "get_logger",
     "get_class_logger",
     "LOGGER_NAME",

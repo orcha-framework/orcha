@@ -24,11 +24,7 @@
 """
 from __future__ import annotations
 
-import typing
 from dataclasses import dataclass, field
-
-if typing.TYPE_CHECKING:
-    from typing import Union
 
 
 @dataclass(frozen=True)
@@ -48,7 +44,7 @@ class Message:
     :see: :py:mod:`pickle`
     """
 
-    id: Union[int, str] = field()
+    id: int | str = field()
     """
     Unique identifier for the message. If duplicated, the message is rejected.
 

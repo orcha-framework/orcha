@@ -122,6 +122,13 @@ version the behavior will be slightly different:
   - For Python >= 3.8, the value will be: ``min(32, os.cpu_count() + 4)``.
 """
 
+look_ahead: int = 1
+"""The number of items to look when querying the queue of pending items to run (defaults to 1).
+This setting implies that a item ``B`` with a priority ``10`` can be run before item ``A`` whose
+priority is ``5`` iff ``A``'s condition cannot be satisfied but ``B``'s condition can (thus
+avoiding starvation).
+"""
+
 
 __all__ = [
     "authkey",
@@ -130,4 +137,5 @@ __all__ = [
     "listen_address",
     "queue_timeout",
     "max_workers",
+    "look_ahead",
 ]

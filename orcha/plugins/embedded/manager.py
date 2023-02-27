@@ -19,19 +19,15 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Type classes that may be used across the project"""
+"""Embedded manager for embedded plugins"""
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Union
-
-from typing_extensions import Protocol
+from orcha.ext.manager import Manager
+from orcha.utils import nop, nopr
 
 
-class SupportsBool(Protocol):
-    @abstractmethod
-    def __bool__(self):
-        ...
-
-
-Bool = Union[bool, SupportsBool]
+class PluginManager(Manager):
+    convert_to_petition = nop
+    on_start = nopr(True)
+    on_finish = nop
+    create_parser = nop

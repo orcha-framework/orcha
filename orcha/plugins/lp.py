@@ -22,13 +22,19 @@
 """Embedded plugin for listing all installed plugins on the system"""
 from __future__ import annotations
 
-import argparse
+import typing
 
-from ..utils import version
+from ..utils import nop, version
 from .base import BasePlugin
+from .embedded import PluginManager
 from .utils import query_plugins
 
-__version__ = "0.0.1"
+if typing.TYPE_CHECKING:
+    from argparse import Namespace
+
+    from orcha.lib import Orcha
+
+__version__ = "0.1.0"
 
 
 class ListPlugin(BasePlugin):
@@ -40,12 +46,10 @@ class ListPlugin(BasePlugin):
     name = "list-plugins"
     aliases = ("ls",)
     help = "list the installed plugins on the system and exit"
+    manager = PluginManager
+    client_parser = nop  # setting an empty parser creates the parser but adds no further options
 
-    def create_parser(self, parser: argparse.ArgumentParser):
-        # we do not need to add any argument here
-        pass
-
-    def handle(self, _: argparse.Namespace) -> int:
+    def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
         discovered_plugins = query_plugins()
         plugins = [plugin.version() for plugin in discovered_plugins]
         plugins.append(ListPlugin.version())

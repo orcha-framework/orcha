@@ -25,6 +25,8 @@ the environment for running the application with the installed plugins. Notice
 that `orcha.main` won't work if no plugin is installed. For more information,
 see: :class:`BasePlugin`.
 """
+from __future__ import annotations
+
 import argparse
 import errno
 import multiprocessing
@@ -53,6 +55,9 @@ def main():
                               as it will be necessary for other processes to communicate with the
                               service itself.
     --max-workers N           maximum concurrent tasks that can be run simultaneously.
+    --look-ahead-items N      amount of items to extract from the queue, allowing running a
+                              subsequent task earlier than the ones with higher priority.
+                              Defaults to 1.
 
     The application automatically detects the plugins that are installed in the system. It
     is important that the installed plugins follows the name convention in order to be
@@ -78,7 +83,8 @@ def main():
 
     .. versionadded:: 0.3.0
         There is a new attribute called ``max-workers`` that allows limiting how many
-        concurrent tasks will be run.
+        concurrent tasks will be run. In addition, the ``look-ahead-items`` is now part of
+        Orcha.
     """
     parser = argparse.ArgumentParser(
         description="Orcha command line utility for handling services",
@@ -106,6 +112,14 @@ def main():
         help="Authentication key used for verifying clients",
     )
     parser.add_argument(
+        "--look-ahead-items",
+        metavar="N",
+        type=int,
+        default=1,
+        help="Amount of items to extract from the queue, allowing running a subsequent task "
+        "earlier than the ones with higher priority. Defaults to 1",
+    )
+    parser.add_argument(
         "--max-workers",
         metavar="N",
         type=int,
@@ -118,17 +132,29 @@ def main():
         required=True,
         metavar="command",
     )
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Serves the given plugin acting as a service",
+        aliases=("s", "srv"),
+    )
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Runs the given plugin acting as a client",
+        aliases=("r",),
+    )
+    run_parser.set_defaults(side="client")
 
     discovered_plugins = query_plugins()
-    plugins = [plugin(subparsers) for plugin in discovered_plugins]
+    plugins = [plugin(serve_parser, run_parser) for plugin in discovered_plugins]
 
     # add our embedded ListPlugin to the list of available plugins
-    plugins.append(ListPlugin(subparsers))
+    plugins.append(ListPlugin(serve_parser, run_parser))
 
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
     orcha.properties.port = args.port
     orcha.properties.max_workers = args.max_workers
+    orcha.properties.look_ahead = args.look_ahead_items
     if args.key is not None:
         orcha.properties.authkey = args.key.encode()
         log.debug("fixing internal digest key")
@@ -139,7 +165,7 @@ def main():
 
     for plugin in plugins:
         if plugin.can_handle(args.owner):
-            return plugin.handle(args)
+            return plugin.handle(args, is_client=args.side == "client")
 
     return errno.ENOENT
 

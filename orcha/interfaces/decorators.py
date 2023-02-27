@@ -28,7 +28,7 @@ from functools import wraps
 from orcha.utils import get_logger
 
 if typing.TYPE_CHECKING:
-    from typing import Callable
+    from typing import Any, Callable
 
 
 _NOT_IMPLEMENTED = r"__notimplemented__"
@@ -36,7 +36,11 @@ _NOT_IMPLEMENTED = r"__notimplemented__"
 log = get_logger()
 
 
-def notimplemented(f: Callable):
+def notimplemented(f: Callable[..., Any]) -> Callable[..., None]:
+    """Decorator that indicates the decorated function is still not implemented. One can use
+    :func:`is_implemented` to check if the function has a body or not. Calling a not-implemented
+    method will not raise an exception but log a debug trace indicating such event.
+    """
     setattr(f, _NOT_IMPLEMENTED, True)
 
     @wraps(f)
@@ -47,4 +51,13 @@ def notimplemented(f: Callable):
 
 
 def is_implemented(f: Callable) -> bool:
+    """Checks if the given function has been decorated with :func:`notimplemented` or not.
+
+    Args:
+        f (:obj:`Callable <typing.Callable>`): function to check.
+
+    Returns:
+        :obj:`bool`: :obj:`True` if the function is implemented, :obj:`False` if it has been
+            decorated with :func:`notimplemented`.
+    """
     return not getattr(f, _NOT_IMPLEMENTED, False)

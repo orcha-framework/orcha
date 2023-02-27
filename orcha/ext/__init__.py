@@ -19,19 +19,15 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Type classes that may be used across the project"""
+"""Orcha module for developers, so they can focus on coding while still preserving functionality"""
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Union
+from .manager import Manager
+from .message import Message
+from .petition import Petition
 
-from typing_extensions import Protocol
-
-
-class SupportsBool(Protocol):
-    @abstractmethod
-    def __bool__(self):
-        ...
-
-
-Bool = Union[bool, SupportsBool]
+__all__ = (
+    "Message",
+    "Petition",
+    "Manager",
+)

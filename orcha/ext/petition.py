@@ -26,21 +26,21 @@ cannot be sent from clients to servers and vice versa.
 """
 from __future__ import annotations
 
+import errno
+import os
 import typing
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import IntEnum, auto, unique
 from functools import total_ordering
 from queue import Queue
 
-from typing_extensions import final
-
 from orcha.exceptions import InvalidStateError
 from orcha.interfaces.types import Bool
-from orcha.utils import kill_proc_tree, nop, nopr
 
 if typing.TYPE_CHECKING:
-    from typing import Any, Callable, Dict, Optional, Set, Union
+    from typing import Any, Callable
 
     from typing_extensions import Self
 
@@ -56,7 +56,7 @@ class PetitionState(IntEnum):
     .. versionadded:: 0.2.2
     """
 
-    PENDING = 0
+    PENDING = auto()
     """The petition has just been created"""
     ENQUEUED = auto()
     """The petition is already enqueued waiting for running"""
@@ -80,27 +80,27 @@ class PetitionState(IntEnum):
     @property
     def is_enqueued(self) -> bool:
         """Checks if the petition is enqueued"""
-        return self == self.ENQUEUED
+        return self is self.ENQUEUED
 
     @property
     def is_running(self) -> bool:
         """Checks if the petition is running"""
-        return self == self.RUNNING
+        return self is self.RUNNING
 
     @property
     def has_finished(self) -> bool:
         """Checks if the petition has finished"""
-        return self == self.FINISHED
+        return self is self.FINISHED
 
     @property
     def has_been_cancelled(self) -> bool:
         """Checks if the petition has been cancelled"""
-        return self == self.CANCELLED
+        return self is self.CANCELLED
 
     @property
     def is_broken(self) -> bool:
         """Checks if the petition is broken"""
-        return self == self.BROKEN
+        return self is self.BROKEN
 
     @property
     def is_stopped(self) -> bool:
@@ -120,7 +120,7 @@ class PetitionState(IntEnum):
     @property
     def is_done(self) -> bool:
         """Checks if the petition is done"""
-        return self == self.DONE
+        return self is self.DONE
 
 
 STOPPED_STATES = {
@@ -153,7 +153,7 @@ considered to be broken, it is, failed during execution, start, etc.
 .. versionadded:: 0.2.5
 """
 
-VALID_TRANSITIONS: Dict[PetitionState, Set[PetitionState]] = {
+VALID_TRANSITIONS: dict[PetitionState, set[PetitionState]] = {
     PetitionState.PENDING: {PetitionState.BROKEN, PetitionState.ENQUEUED},
     PetitionState.ENQUEUED: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.RUNNING},
     PetitionState.RUNNING: {PetitionState.BROKEN, PetitionState.CANCELLED, PetitionState.FINISHED},
@@ -224,7 +224,7 @@ class Petition(ABC):
     Items with the same priority may keep input order, but it is not guaranteed.
     """
 
-    id: Union[int, str] = field(compare=False)
+    id: int | str = field(compare=False)
     """
     Unique identifier for this petition. This value must directly be extracted from
     :attr:`Message.id`.
@@ -233,7 +233,7 @@ class Petition(ABC):
        Accept :obj:`str` as unique ID identifier also.
     """
 
-    queue: Optional[Queue] = field(compare=False, repr=False)
+    queue: Queue | None = field(compare=False, repr=False)
     """
     :class:`Queue <multiprocessing.Queue>` used for process communication. Actually,
     this queue is used as a one-sided pipe in which the server puts the messages of
@@ -311,9 +311,9 @@ class Petition(ABC):
 
         .. versionchanged:: 0.3.0:: This field is now a property
         """
-        if state != self.__state__ and state not in VALID_TRANSITIONS[self.__state__]:
+        if state is not self.__state__ and state not in VALID_TRANSITIONS[self.__state__]:
             raise InvalidStateError(
-                f'Cannot go to state "{self.__state__.name}" from current state "{state.name}" '
+                f'Cannot go to state "{state.name}" from current state "{self.__state__.name}" '
                 f'"[{self.__state__.name} --X-> {state.name}]'
             )
 
@@ -344,10 +344,8 @@ class Petition(ABC):
         if self.queue is None:
             raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
 
-        try:
+        with suppress(ValueError):
             self.queue.put(message, block=blocking)
-        except ValueError:
-            pass
 
     def communicate_nw(self, message: Any):
         """
@@ -364,12 +362,10 @@ class Petition(ABC):
         if self.queue is None:
             raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
 
-        try:
+        with suppress(ValueError):
             self.queue.put_nowait(message)
-        except ValueError:
-            pass
 
-    def finish(self, ret: Optional[int] = None):
+    def finish(self, ret: int | None = None):
         """
         Notifies to the listening process that the corresponding action has finished.
 
@@ -382,10 +378,8 @@ class Petition(ABC):
         if self.queue is None:
             raise AttributeError(f"Queue is not initialized for petition {type(self).__name__}")
 
-        try:
+        with suppress(ValueError):
             self.queue.put(ret)
-        except ValueError:
-            pass
 
     @abstractmethod
     def terminate(self) -> bool:
@@ -434,32 +428,6 @@ class Petition(ABC):
         return self.priority < __o.priority
 
 
-@final
-@dataclass(init=False)
-class EmptyPetition(Petition):
-    """
-    Empty petition which will run always the latest (as its priority is ``inf``).
-    This petition is used in :class:`Manager` for indicating that there won't be
-    any new petitions after this one, so the :class:`Processor` can shut down.
-
-    Note:
-        This class accepts no parameters, and you can use it whenever you want for
-        debugging purposes. Notice that it is immutable, which means that no attribute
-        can be altered, added or removed once it has been initialized.
-    """
-
-    priority = float("inf")
-    id = -1
-    queue = None
-    action = nop
-    condition = nopr(True)
-    terminate = nopr(True)
-
-    # pylint: disable=super-init-not-called
-    def __init__(self):
-        ...
-
-
 @dataclass
 class SignalingPetition(Petition):
     """
@@ -488,13 +456,15 @@ class SignalingPetition(Petition):
     should be valid within the host architecture the orchestrator is running on.
     """
 
-    kill_parent: bool = field(compare=False)
+    is_process_group: bool = field(compare=False)
     """
-    Whether to send the specific signal to the parent also (it is, the PID itself, not only
-    its children). If unsure, set to :obj:`True`.
+    Whether if the :attr:`pid` refers to a process group instead of a process PID (thus,
+    :func:`os.killpg` is used instead of :func:`os.kill`).
+
+    .. versionadded:: 0.3.0
     """
 
-    pid: Optional[int] = field(compare=False, init=False, default=None)
+    pid: int | None = field(compare=False, init=False, default=None)
     """
     PID of the process to send the signal to. Can change during execution to match the
     actual running process and is :obj:`None` by default, meaning that you **must** set
@@ -504,47 +474,42 @@ class SignalingPetition(Petition):
     """
 
     def terminate(self) -> bool:
-        """Sends the specified signal to the process and/or its parent.
+        """Sends the specified signal to the process or the process group.
 
         Raises:
-            :obj:`ValueError`: if the :attr:`pid` is :obj:`None`.
+            :obj:`ValueError`: if the :attr:`pid` is :obj:`None` or less or equals to 0.
 
         Returns:
-            :obj:`bool`: :obj:`True` if all children have been signaled correctly,
+            :obj:`bool`: :obj:`True` if the process (or process group) was signaled correctly,
                 :obj:`False` otherwise.
 
         .. versionchanged:: 0.3.0
             :meth:`terminate` does not require anymore ``pid`` parameter.
         """
-        if self.pid is None:
+        if self.pid is None or self.pid <= 0:
             raise ValueError(f'Petition of type "{type(self).__name__}" requires a valid PID')
 
-        return kill_proc_tree(self.pid, self.kill_parent, self.signal)
-
-
-@final
-@dataclass(init=False)
-class Placeholder(Petition):
-    """Placeholder petition that simply stores the state"""
-
-    priority = float("inf")
-    queue = None
-    action = nop
-    condition = nopr(True)
-    terminate = nopr(True)
-
-    # pylint: disable=super-init-not-called
-    def __init__(self, id: Union[int, str]):
-        self.id = id
+        kill_fn = os.killpg if self.is_process_group else os.kill
+        try:
+            kill_fn(self.pid, self.signal)
+        except OSError as err:
+            if err.errno == errno.EINVAL:
+                raise ValueError(f'Unknown signal "{self.signal}" for petition "{self}"') from err
+            if err.errno == errno.EPERM:
+                return False
+            # according to "man 2 kill", errno can be one of EINVAL, EPERM or ESRCH (which means
+            # that the PID or PGID does not exist, which is OK because it can refer an already
+            # dead process).
+            return True
+        else:
+            return True
 
 
 __all__ = [
-    "EmptyPetition",
     "Petition",
     "SignalingPetition",
     "PetitionState",
     "STOPPED_STATES",
     "RUNNING_STATES",
     "BROKEN_STATES",
-    "Placeholder",
 ]

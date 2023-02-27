@@ -30,12 +30,12 @@ from ..utils.logging_utils import get_logger
 from .base import BasePlugin
 
 if typing.TYPE_CHECKING:
-    from typing import List, Optional, Type
+    from typing import Type
 
 log = get_logger()
 
 
-def query_plugins() -> List[Type[BasePlugin]]:
+def query_plugins() -> list[Type[BasePlugin]]:
     """
     Query all installed plugins on the system. Notice that plugins must start with the
     prefix ``orcha_`` and must export an object with name ``plugin`` which holds a reference
@@ -52,7 +52,7 @@ def query_plugins() -> List[Type[BasePlugin]]:
     }
     plugins = []
     for plugin, mod in discovered_plugins.items():
-        pl: Optional[Type[BasePlugin]] = getattr(mod, "plugin", None)
+        pl: Type[BasePlugin] | None = getattr(mod, "plugin", None)
         if pl is None:
             log.warning(
                 'invalid plugin specified for "%s". '

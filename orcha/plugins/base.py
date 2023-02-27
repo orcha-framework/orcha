@@ -22,17 +22,21 @@
 """Base plugin which all plugins must inherit from"""
 from __future__ import annotations
 
-import argparse
+import signal
 import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from typing_extensions import final
 
+from ..lib.orcha import Orcha
 from ..utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
-    from typing import Optional
+    from argparse import ArgumentParser, Namespace
+    from typing import Callable, Type
+
+    from orcha.ext.manager import Manager
 
 
 log = get_logger()
@@ -120,37 +124,97 @@ class BasePlugin(ABC):
     """
 
     name: str = field(init=False)
-    """The name that your command will have, when called from the CLI"""
+    """The name that your command will have, when called from the CLI."""
+
+    manager: Type[Manager] = field(init=False)
+    """The manager class that will handle the CLI arguments. This class MUST implement an empty
+    constructor. When instantiated, Orcha will be automatically instantiated using this manager
+    as base."""
 
     aliases: tuple = field(init=False, default=())
-    """Optional tuple containing aliases for your command"""
+    """Optional tuple containing aliases for your command."""
 
-    help: Optional[str] = field(init=False, default=None)
+    help: str | None = field(init=False, default=None)
     """
     Optional help string that will be shown when the user sets the "``--help``" option on
-    your command
+    your command.
+    """
+
+    service_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
+    """
+    Function to be run when Orcha asks the plugin for its service parser, if any. Setting this
+    function to :obj:`None` disables the service functionality for this plugin (it is,
+    ``orcha serve`` will not display your plugin).
+
+    The function you provide must accept a single argument whose kind is
+    :obj:`argparse.ArgumentParser`, which refers to the service parser you should use to define
+    your own sub-commands.
+
+    Note:
+        The parser is automatically configured to be your plugin's :attr:`name`. You do not need to
+        create your parser, unless required.
+
+    Within such parser, you can add your commands and required configuration for your service to
+    work. Notice that, by default, all given properties will be stored at
+    :obj:`orcha.properties.extras`, where you can access them.
+
+    If your plugin is eligible for being run, it will be automatically started and you shall
+    configure it at your :class:`Manager <orcha.ext.Manager>`'s ``__init__``.
+
+    Tip:
+        As this field is expecting a function, you can fed here whatever you want: from
+        :obj:`classmethod`, simple functions to :obj:`staticmethod`::
+
+            class MyManager(Manager):
+                @staticmethod
+                def service_parser(parser):
+                    ...
+
+            class MyPlugin(BasePlugin):
+                service_parser = MyManager.service_parser
+    """
+
+    client_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
+    """
+    Function to be run when Orcha asks the plugin for its client parser, if any. Setting this
+    function to :obj:`None` disables the client functionality for this plugin (it is, ``orcha run``
+    will not display your plugin).
+
+    The function you provide must accept a single argument whose kind is
+    :obj:`argparse.ArgumentParser`, which refers to the service parser you should use to define
+    your own sub-commands.
+
+    Note:
+        The parser is automatically configured to be your plugin's :attr:`name`. You do not need to
+        create your parser, unless required.
+
+    Within such parser, you can add your commands and required configuration for your service to
+    work.
+
+    If your plugin is eligible for being run, the method :meth:`client_main` will be run. In there,
+    you will receive :obj:`namespace <argparse.Namespace>` arguments as well as the
+    :class:`orcha <orcha.lib.Orcha>` instance.
+
+    See also: :attr:`service_parser` for more information and tips.
     """
 
     @final
-    def __init__(self, subparser):
-        self._subparser = subparser
-        self.create_parser(self.__parser)
+    def __init__(self, service_parser: ArgumentParser, client_parser: ArgumentParser):
+        if self.service_parser is not None:
+            self.service_parser(self._create_parser(service_parser))
 
-    @property
+        if self.client_parser is not None:
+            self.client_parser(self._create_parser(client_parser))
+
     @final
-    def __parser(self) -> argparse.ArgumentParser:
-        kwargs = {
-            "name": self.name,
-            "aliases": self.aliases,
-        }
-        if self.help is not None:
-            kwargs["help"] = self.help
-
-        p = self._subparser.add_parser(**kwargs)
+    def _create_parser(self, parser: ArgumentParser) -> ArgumentParser:
+        subparser = parser.add_subparsers(help=self.help, required=True)
+        p = subparser.add_parser(self.name, help=self.help, aliases=self.aliases)
         p.set_defaults(owner=self)
         p.add_argument("--version", action="version", version=self.version())
         return p
 
+    @final
     def can_handle(self, owner: BasePlugin) -> bool:
         """Returns whether if the plugin can handle the input command or not
 
@@ -160,27 +224,49 @@ class BasePlugin(ABC):
         Returns:
             bool: :obj:`True` if the plugin can handle the command, :obj:`False` otherwise.
         """
-        return self == owner
+        return self is owner
+
+    @final
+    def service_main(self, orcha: Orcha) -> int:
+        ret = 0
+
+        def do_shutdown(*_):
+            nonlocal ret
+            ret = orcha.shutdown()
+
+        signal.signal(signal.SIGTERM, do_shutdown)
+        signal.signal(signal.SIGINT, do_shutdown)
+
+        try:
+            orcha.serve()
+        except Exception as err:
+            log.critical("unhandled exception while starting manager! %s", err, exc_info=True)
+            ret = 1
+        finally:
+            do_shutdown()
+
+        return ret
 
     @abstractmethod
-    def create_parser(self, parser: argparse.ArgumentParser):
-        """Creates a parser that includes the subcommands and arguments required for
-        the plugin to work. The parser will be always a child from Orcha parser.
+    def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
+        """Handles the input command by probably running a main process. Notice that the
+        orchestrator instance **is not connected**, so the first thing you will need to do is
+        perform the :meth:`connect <orcha.lib.Orcha.connect>` to establish the communication with
+        the service.
 
         Args:
-            parser (argparse.ArgumentParser): custom parser to work with Orcha
-        """
-
-    @abstractmethod
-    def handle(self, namespace: argparse.Namespace) -> int:
-        """Handles the input command by probably running a main process.
-
-        Args:
-            namespace (argparse.Namespace): arguments received from CLI
+            namespace (:obj:`argparse.Namespace`): arguments received from CLI
 
         Returns:
-            int: main application return code, if any
+            :obj:`int`: main application return code, if any
         """
+
+    @final
+    def handle(self, namespace: Namespace, is_client: bool) -> int:
+        orcha = Orcha.as_client() if is_client else Orcha.with_manager(self.manager)
+        if is_client:
+            return self.client_main(namespace, orcha)
+        return self.service_main(orcha)
 
     @staticmethod
     @abstractmethod
@@ -193,7 +279,7 @@ class BasePlugin(ABC):
             <PluginName> - <PluginVersion>
 
         Returns:
-            str: the version identifier
+            :obj:`str`: the version identifier
         """
 
 

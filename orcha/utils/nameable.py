@@ -22,10 +22,8 @@
 """Class that can be inherited for getting its name"""
 from __future__ import annotations
 
-from typing_extensions import Protocol
 
-
-class Nameable(Protocol):
+class Nameable:
     @classmethod
     def classname(cls):
         return cls.__name__

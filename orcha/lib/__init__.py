@@ -42,8 +42,9 @@ Note:
 --------
 """
 
-from .manager import ClientManager, Manager
-from .pluggable import Pluggable
+from .client import Client
+from .orcha import Orcha
+from .petition import EMPTY_PETITION_ID, EmptyPetition, Placeholder
 from .processor import Processor
 
-__all__ = ["Manager", "Processor", "ClientManager", "Pluggable"]
+__all__ = ["Orcha", "Processor", "Client", "EmptyPetition", "EMPTY_PETITION_ID", "Placeholder"]

@@ -19,29 +19,34 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Manager module containing the :class:`Manager`"""
+"""Manager module containing the :class:`Orcha`"""
 from __future__ import annotations
 
 import errno
 import multiprocessing
 import typing
-from abc import abstractmethod
 from multiprocessing.managers import SyncManager
 from warnings import warn
 
 from typing_extensions import final
 
 from orcha import properties
-from orcha.exceptions import InvalidStateError, ManagerShutdownError
-from orcha.interfaces import Bool, Message, Petition, PetitionState, is_implemented
-from orcha.lib.pluggable import Pluggable
+from orcha.exceptions import ManagerShutdownError
+from orcha.ext.manager import Manager
+from orcha.ext.message import Message
+from orcha.ext.petition import Petition, PetitionState
+from orcha.ext.pluggable import Pluggable
+from orcha.interfaces import Bool, is_implemented
+from orcha.lib.client import Client
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
     from threading import Thread
-    from typing import Any, Callable, List, Optional, Tuple, Union
+    from typing import Any, Callable, Type
+
+    from typing_extensions import Self
 
 # system logger
 log = get_logger()
@@ -54,22 +59,17 @@ _queue = multiprocessing.Queue()
 # in multiprocessing
 _finish_queue = multiprocessing.Queue()
 
-# set of restricted IDs that cannot be used when sending messages
-_restricted_ids = {
-    r"watchdog",
-}
 
-
-class Manager(Pluggable):
-    """:class:`Manager` is the object an application must inherit from in order to work with
-    Orcha. A :class:`Manager` encapsulates all the logic behind the application, making
+class Orcha:
+    """:class:`Orcha` is the object an application must inherit from in order to work with
+    Orcha. A :class:`Orcha` encapsulates all the logic behind the application, making
     easier to handle all incoming petitions and requests.
 
-    The expected workflow for a class inheriting from :class:`Manager` is::
+    The expected workflow for a class inheriting from :class:`Orcha` is::
 
         ┌─────────────────────┐                 ┌───────────────────┐
         │                     │  not is_client  |                   |
-        |      Manager()      ├────────────┬───►|    Processor()    ├──────────┬─────...────┐
+        |       Orcha()       ├────────────┬───►|    Processor()    ├──────────┬─────...────┐
         │                     │            |    |                   |          |            |
         └──────────┬──────────┘            |    └───────────────────┘       Thread 1 ... Thread n
                over|ride                   |
@@ -108,7 +108,7 @@ class Manager(Pluggable):
     :class:`Processor`).
 
     Note:
-        The :class:`Manager` is an abstract class and the methods above are abstract also,
+        The :class:`Orcha` is an abstract class and the methods above are abstract also,
         which means that you are forced to implement them. On your client managers, you
         can opt in for raising an exception on :func:`on_start`, :func:`on_finish` and
         :func:`convert_to_petition`, as they will never (*should*) be called::
@@ -133,17 +133,19 @@ class Manager(Pluggable):
         Processor now supports an attribute :attr:`look_ahead <orcha.lib.Processor.look_ahead>`
         which allows defining an amount of items that will be pop-ed from the queue,
         modifying the default behavior of just obtaining a single item. Setting the
-        :class:`Manager`'s ``look_ahead`` will set :class:`Processor`'s ``look_ahead`` too.
+        :class:`Orcha`'s ``look_ahead`` will set :class:`Processor`'s ``look_ahead`` too.
 
     .. versionadded:: 0.1.9
         Processor supports a new attribute
         :attr:`notify_watchdog <orcha.lib.Processor.notify_watchdog>`
         that defines if the processor shall create a background thread that takes care of
         notifying systemd about our status and, if dead, to restart us.
-        Setting the :class:`Manager`'s ``notify_watchdog`` will set
+        Setting the :class:`Orcha`'s ``notify_watchdog`` will set
         :class:`Processor`'s ``notify_watchdog`` too.
 
     Args:
+        manager (:class:`Manager <orcha.ext.Manager>`): manager implemented by the client which
+            encapsulates all the logic to run Orcha itself.
         listen_address (str, optional): address used when declaring a
                                         :class:`Manager <multiprocessing.managers.BaseManager>`
                                         object. Defaults to
@@ -176,36 +178,39 @@ class Manager(Pluggable):
 
     .. versionchanged:: 0.3.0
         There is no more ``notify_watchdog`` parameter as everything has been moved into the
-        :obj:`Pluggable <orcha.lib.Pluggable>` interface.
+        :obj:`Pluggable <orcha.lib.Pluggable>` interface. Furthermore, a new parameter was added
+        because the module has been refactored into multiple submodules, so it is easier to
+        developers to focus on their code. This implies that :class:`Orcha` now requires a
+        :class:`Manager <orcha.ext.Manager>` to work.
     """
 
-    # pylint: disable=super-init-not-called
     def __init__(
         self,
-        listen_address: str = properties.listen_address,
-        port: int = properties.port,
-        auth_key: Optional[bytes] = properties.authkey,
-        create_processor: bool = True,
-        queue: Optional[multiprocessing.Queue] = None,
-        finish_queue: Optional[multiprocessing.Queue] = None,
-        is_client: bool = False,
-        look_ahead: int = 1,
+        manager_cls: Type[Manager],
+        listen_address: str,
+        port: int,
+        auth_key: bytes | None,
+        create_processor: bool,
+        queue: multiprocessing.Queue | None,
+        finish_queue: multiprocessing.Queue | None,
+        is_client: bool,
+        look_ahead: int,
     ):
-        self.manager = SyncManager(address=(listen_address, port), authkey=auth_key)
-        """
-        A :py:class:`SyncManager <multiprocessing.managers.SyncManager>` object which
-        is used for creating proxy objects for process communication.
-        """
+        self.manager = manager_cls()
+        self.manager.look_ahead = look_ahead
+        """Underlying :class:`Manager <orcha.ext.Manager>` instance that takes care of doing the
+        processing of the petitions"""
 
+        self._mp_manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         self._create_processor = create_processor
         self._is_client = is_client
         self._set_lock = multiprocessing.Lock()
         self._petition_lock = multiprocessing.Lock()
+        self._lock = multiprocessing.Lock()
         self._enqueued_messages = set()
         self._shutdown = multiprocessing.Event()
-        self._tmp_plugs: List[Pluggable] = []
-        self._plugs: Tuple[Pluggable, ...] = tuple()
-        self._plug_threads: List[Thread] = []
+        self._plugs: tuple[Pluggable, ...] = tuple()
+        self._plug_threads: list[Thread] = []
         self._started = False
 
         # clients don't need any processor
@@ -213,18 +218,7 @@ class Manager(Pluggable):
             log.debug("creating processor for %s", self)
             queue = queue or _queue
             finish_queue = finish_queue or _finish_queue
-            self.processor = Processor(queue, finish_queue, self, look_ahead)
-            """
-            A :class:`Processor <orcha.lib.Processor>` object which references the singleton
-            instance of the processor itself, allowing access to the exposed parameters
-            of it.
-
-            .. warning::
-                Notice that :class:`Processor <orcha.lib.Processor>` is one of the fundamentals
-                that defines the behavior of the orchestrator itself. There are some exposed
-                attributes that can be accessed, but modify them with care as it may broke
-                orchestrator behavior.
-            """
+            self._processor = Processor(queue, finish_queue, self, look_ahead)
 
         log.debug("manager created - running setup...")
         try:
@@ -234,40 +228,61 @@ class Manager(Pluggable):
                 "unhandled exception while creating manager! Finishing all (error: %s)", e
             )
             if create_processor and not is_client:
-                self.processor.shutdown()
+                self._processor.shutdown()
             raise
 
+    @classmethod
+    def with_manager(cls, manager_cls: Type[Manager]) -> Self:
+        return cls(
+            manager_cls=manager_cls,
+            listen_address=properties.listen_address,
+            port=properties.port,
+            auth_key=properties.authkey,
+            create_processor=True,
+            queue=_queue,
+            finish_queue=_finish_queue,
+            is_client=False,
+            look_ahead=properties.look_ahead,
+        )
+
+    @classmethod
+    def as_client(cls) -> Self:
+        return cls(
+            manager_cls=Client,
+            listen_address=properties.listen_address,
+            port=properties.port,
+            auth_key=properties.authkey,
+            create_processor=False,
+            queue=None,
+            finish_queue=None,
+            is_client=True,
+            look_ahead=0,
+        )
+
     @property
-    def processor(self) -> Processor:
-        """:class:`Processor` which handles all the queues and incoming requests,
-        running the specified :attr:`action <orcha.interfaces.Petition.action>` when
-        the :attr:`condition <orcha.interfaces.Petition.condition>` evaluates to
-        :obj:`True`.
-
-        :see: :class:`Processor`
-
-        Raises:
-            RuntimeError: if there is no processor attached or if the manager is a client
+    def look_ahead(self) -> int:
+        """Exposes child :attr:`manager` look ahead attribute for reading or writing dynamically.
 
         Returns:
-            Processor: the processor object
+            :obj:`int`: look ahead attribute.
         """
-        if not self._create_processor or self._is_client:
-            raise RuntimeError("this manager has no processors")
+        with self._lock:
+            return self.manager.look_ahead
 
-        return self._processor
+    @look_ahead.setter
+    def look_ahead(self, value: int):
+        with self._lock:
+            self.manager.look_ahead = value
 
-    @processor.setter
-    def processor(self, processor: Processor):
-        if not self._create_processor or self._is_client:
-            raise RuntimeError("this manager does not support processors")
-
-        self._processor = processor
+    @property
+    def is_client(self) -> bool:
+        """Whether if current Orcha instance is running as a client or not"""
+        return self._is_client
 
     @final
     def connect(self) -> bool:
         """
-        Connects to an existing :class:`Manager` when acting as a client. This
+        Connects to an existing :class:`Orcha` when acting as a client. This
         method can be used also when the manager is a server, if you want that
         server to behave like a client.
 
@@ -283,20 +298,21 @@ class Manager(Pluggable):
         """
         log.debug("connecting to manager")
         try:
-            self.manager.connect()  # pylint: disable=no-member
+            self._mp_manager.connect()  # pylint: disable=no-member
             return True
         except multiprocessing.AuthenticationError as e:
             log.fatal(
                 'Authentication against server [%s:%d] failed! Maybe "--key" is missing?',
-                self.manager.address[0],  # pylint: disable=no-member
-                self.manager.address[1],  # pylint: disable=no-member
+                self._mp_manager.address[0],  # pylint: disable=no-member
+                self._mp_manager.address[1],  # pylint: disable=no-member
             )
             log.fatal(e)
             return False
 
     def _close_plugs(self):
-        self._plugs = tuple(sorted(self._tmp_plugs))
-        del self._tmp_plugs
+        tmp_plugs = self.manager.get_plugs()
+        if tmp_plugs is not None:
+            self._plugs = tuple(sorted(tmp_plugs))
 
     @final
     def start(self):
@@ -306,13 +322,13 @@ class Manager(Pluggable):
 
         If calling this method as a client a warning is thrown.
         """
-        if not self._is_client:
+        if not self.is_client:
             # fix autoproxy class in Python versions < 3.9.*
             autoproxy.fix()
 
             # pylint: disable=consider-using-with
             log.debug("starting manager")
-            self.manager.start()
+            self._mp_manager.start()
             self._started = True
             self._close_plugs()
             self.on_manager_start()
@@ -327,7 +343,7 @@ class Manager(Pluggable):
 
         If calling this method as a client, a warning is thrown.
         """
-        if not self._is_client:
+        if not self.is_client:
             # fix AutoProxy class in Python versions < 3.9.*
             autoproxy.fix()
 
@@ -357,16 +373,16 @@ class Manager(Pluggable):
         self._shutdown.set()
         try:
             self.on_manager_shutdown()
-            if self._create_processor and not self._is_client:
+            if self._create_processor and not self.is_client:
                 log.debug("shutting down processor")
-                self.processor.shutdown()
+                self._processor.shutdown()
 
-            if not self._is_client:
+            if not self.is_client:
                 log.debug("finishing manager")
                 try:
-                    self.manager.shutdown()
+                    self._mp_manager.shutdown()
                     # wait at most 60 seconds before considering the manager done
-                    self.manager.join(timeout=60.0)  # pylint: disable=no-member
+                    self._mp_manager.join(timeout=60.0)  # pylint: disable=no-member
                 except (AttributeError, AssertionError):
                     # ignore AttributeError and AssertionError errors
                     pass
@@ -386,11 +402,11 @@ class Manager(Pluggable):
         :py:attr:`shutdown() <multiprocessing.managers.BaseManager.shutdown>` has been called).
         """
         log.debug("waiting for manager...")
-        self.manager.join()  # pylint: disable=no-member
+        self._mp_manager.join()  # pylint: disable=no-member
         log.debug("manager joined")
 
     @final
-    def register(self, name: str, func: Optional[Callable] = None, **kwargs):
+    def register(self, name: str, func: Callable[..., Any] | None = None, **kwargs):
         """Registers a new function call as a method for the internal
         :py:class:`SyncManager <multiprocessing.managers.SyncManager>`. In addition,
         adds this method as an own function to the instance:
@@ -427,10 +443,10 @@ class Manager(Pluggable):
                                                  called. Defaults to :obj:`None`.
         """
         log.debug('registering callable "%s" with name "%s"', func, name)
-        self.manager.register(name, func, **kwargs)  # pylint: disable=no-member
+        self._mp_manager.register(name, func, **kwargs)  # pylint: disable=no-member
 
         def temp(*args, **kwds):
-            return getattr(self.manager, name)(*args, **kwds)
+            return getattr(self._mp_manager, name)(*args, **kwds)
 
         setattr(self, name, temp)
 
@@ -452,7 +468,7 @@ class Manager(Pluggable):
         """
 
     @final
-    def finish(self, message: Union[Message, int, str]):
+    def finish(self, message: Message | int | str):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
 
@@ -475,15 +491,15 @@ class Manager(Pluggable):
     @final
     def _add_message(self, m: Message):
         if not self._shutdown.is_set():
-            return self.processor.enqueue(m)
+            return self._processor.enqueue(m)
 
         log.debug("we're off - enqueue petition not accepted for message with ID %s", m.id)
         raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
 
     @final
-    def _finish_message(self, m: Union[Message, int, str]):
+    def _finish_message(self, m: Message | int | str):
         if not self._shutdown.is_set():
-            return self.processor.finish(m)
+            return self._processor.finish(m)
 
         log.debug(
             "we're off - finish petition not accepted for message with ID %s",
@@ -503,13 +519,13 @@ class Manager(Pluggable):
         :attr:`manager` object. If running as a client, registers the method declaration itself
         and leverages the execution to the remote manager.
         """
-        send_fn = None if self._is_client else self._add_message
-        finish_fn = None if self._is_client else self._finish_message
+        send_fn = None if self.is_client else self._add_message
+        finish_fn = None if self.is_client else self._finish_message
 
         self.register("send", send_fn)
         self.register("finish", finish_fn)
 
-    def is_running(self, x: Union[Message, Petition, int, str]) -> bool:
+    def is_running(self, x: Message | Petition | int | str) -> bool:
         """With the given arg, returns whether the petition is already
         running or not yet. Its state can be:
 
@@ -530,7 +546,7 @@ class Manager(Pluggable):
         Returns:
             bool: whether if the petition is running or not
         """
-        if not self._is_client:
+        if not self.is_client:
             if isinstance(x, (Message, Petition)):
                 x = x.id
 
@@ -549,32 +565,16 @@ class Manager(Pluggable):
         Returns:
             int: amount of running processes
         """
-        if not self._is_client:
+        if not self.is_client:
             with self._set_lock:
                 return len(self._enqueued_messages)
 
         raise NotImplementedError()
 
-    @abstractmethod
-    def convert_to_petition(self, m: Message) -> Optional[Petition]:
-        """With the given message, returns the corresponding :class:`Petition` object
-        ready to be executed by :attr:`processor`.
-
-        This method must be implemented by subclasses, in exception to clients as they
-        do not need to worry about converting the message to a petition. Nevertheless,
-        clients must implement this function but can decide to just thrown an exception.
-
-        Args:
-            m (Message): the message to convert
-
-        Returns:
-            Optional[Petition]: the converted petition, if valid
-        """
-
     @final
     def check(self, petition: Petition) -> bool:
         return (
-            not self._is_client
+            not self.is_client
             and petition.state.is_enqueued
             and not self.is_running(petition)
             and self.on_petition_check(petition, petition.condition(petition))
@@ -615,7 +615,7 @@ class Manager(Pluggable):
             :class:`Processor <orcha.lib.Processor>` will check for both healthiness and state
             for re-enqueuing the petition again when the condition was not satisfied.
         """
-        if self._is_client:
+        if self.is_client:
             raise NotImplementedError()
 
         with self._set_lock:
@@ -626,54 +626,10 @@ class Manager(Pluggable):
             # if some plugin starts the petition, skip the `on_start` call
             if petition.state.is_enqueued:
                 petition.state = PetitionState.RUNNING
-                return self.on_start(petition)
+                return self.manager.on_start(petition)
 
             # petition is already running by any of the plugins
             return petition.state.is_running
-
-    @abstractmethod
-    def on_start(self, petition: Petition) -> bool:
-        """Action to be run when a :class:`Petition <orcha.interfaces.Petition>` has started
-        its execution, in order to manage how the manager will react to other petitions when
-        enqueued (i.e.: to have a control on the execution, how many items are running, etc.).
-
-        By default, it just saves the petition ID as a running process. Client managers
-        do not need to implement this method, so they can just throw an exception.
-
-        Note:
-            This method is intended to be used for managing requests queues and how are
-            they handled depending on, for example, CPU usage or starting services.
-            For a custom behavior on execution, please better use
-            :attr:`action <orcha.interfaces.Petition.action>`.
-
-        Warning:
-            This method is called by :func:`start_petition` in
-            a mutex environment, so it is **required** that no unhandled exception happens here
-            and that the operations done are minimal, as other processes will have to wait until
-            this call is done.
-
-        Important:
-            Since version ``0.2.5`` this function shall return a boolean value indicating
-            if the :attr:`petition status <orcha.interfaces.Petition.status>` is healthy
-            or not. If this function raises an exception, automatically the
-            :attr:`petition state <orcha.interfaces.Petition.state>` will be set to
-            :attr:`PetitionState.BROKEN <orcha.interfaces.PetitionState.BROKEN>`.
-
-            When an :func:`on_start` method fails (``healthy = False``), the
-            :attr:`action <orcha.interfaces.Petition.action>` call is skipped and directly
-            :func:`on_finish` is called, in which you may handle that
-            :attr:`BROKEN <orcha.interfaces.PetitionState.BROKEN>` status
-
-        Args:
-            petition (:obj:`Petition <orcha.interfaces.Petition>`): the petition that has
-                just started
-
-        Returns:
-            :obj:`bool`: :obj:`True` if the start process went fine, :obj:`False` otherwise.
-
-        .. versionadded:: 0.2.6
-            Child classes do not require to call ``super`` for this method call.
-        """
 
     @final
     def finish_petition(self, petition: Petition):
@@ -694,7 +650,7 @@ class Manager(Pluggable):
             petition (:obj:`Petition <orcha.interfaces.Petition>`): petition that is about
                 to be started.
         """
-        if self._is_client:
+        if self.is_client:
             raise NotImplementedError()
 
         if self.is_running(petition):
@@ -708,51 +664,7 @@ class Manager(Pluggable):
                 self.on_petition_finish(petition)
                 # if some plugin finishes the petition, skip the `on_finish` call
                 if not petition.state.is_done:
-                    self.on_finish(petition)
-
-    @abstractmethod
-    def on_finish(self, petition: Petition):
-        """Action to be run when a :class:`Petition <orcha.interfaces.Petition>` has started
-        its execution, in order to manage how the manager will react to other petitions when
-        enqueued (i.e.: to have a control on the execution, how many items are running, etc.).
-
-        By default, it just removes the petition ID from the running process set. Client managers
-        do not need to implement this method, so they can just throw an exception.
-
-        Note:
-            This method is intended to be used for managing requests queues and how are
-            they handled depending on, for example, CPU usage. For a custom behavior
-            on execution finish, please better use
-            :attr:`action <orcha.interfaces.Petition.action>`.
-
-        Warning:
-            This method is called by :func:`finish_petition` in
-            a mutex environment, so it is **required** that no unhandled exception happens here
-            and that the operations done are minimal, as other processes will have to wait until
-            this call is done.
-
-        Important:
-            Since version ``0.2.6`` there is no need to return any value. It is ensured that this
-            method is called iff the received petition existed and was running.
-
-        Args:
-            petition (:obj:`Petition <orcha.interfaces.Petition>`): the petition that has
-                just started
-
-        .. versionadded:: 0.2.6
-            This method returns nothing as it is ensured to be called only iff the given petition
-            was running.
-        """
-
-    @final
-    def plug(self, plug: Pluggable):
-        if self._is_client:
-            raise NotImplementedError()
-
-        if self._started:
-            raise InvalidStateError("Cannot attach a pluggable to an already started manager")
-
-        self._tmp_plugs.append(plug)
+                    self.manager.on_finish(petition)
 
     @final
     def run_hooks(self, name: str, *args, **kwargs):
@@ -773,14 +685,14 @@ class Manager(Pluggable):
         self.run_hooks("on_manager_shutdown")
 
     @final
-    def on_message_preconvert(self, message: Message) -> Optional[Petition]:
+    def on_message_preconvert(self, message: Message) -> Petition | None:
         for plug in self._plugs:
             if is_implemented(plug.on_message_preconvert):
                 ret = plug.run_hook(plug.on_message_preconvert, message)
                 if ret is not None:
                     return ret
 
-        return self.convert_to_petition(message)
+        return self.manager.convert_to_petition(message)
 
     @final
     def on_petition_create(self, petition: Petition):
@@ -817,101 +729,8 @@ class Manager(Pluggable):
                 break
 
     def __del__(self):
-        if not self._is_client and not self._shutdown.is_set():
+        if not self.is_client and not self._shutdown.is_set():
             warn('"shutdown()" not called! There can be leftovers pending to remove')
 
 
-class ClientManager(Manager):
-    """
-    Simple :class:`Manager` that is intended to be used by clients, defining the expected common
-    behavior of this kind of managers.
-
-    By default, it only takes the three main arguments: ``listen_address``, ``port`` and
-    ``auth_key``. The rest of the params are directly fulfilled and leveraged to the parent's
-    constructor.
-
-    In addition, the required abstract methods are directly overridden with no further action
-    rather than throwing a :class:`NotImplementedError`.
-
-    Note:
-        This class defines no additional behavior rather than the basic one. Actually, it is
-        exactly the same as implementing your own one as follows::
-
-            from orcha.lib import Manager
-
-            class ClientManager(Manager):
-                def __init__(self):
-                    super().__init__(is_client=True)
-
-                def convert_to_petition(self, *args):
-                    pass
-
-                def on_start(self, *args):
-                    pass
-
-                def on_finish(self, *args):
-                    pass
-
-        The main point is that as all clients should have the behavior above a generic base
-        class is given, so you can define as many clients as you want as simple as doing::
-
-            from orcha.lib import ClientManager
-
-            class MyClient(ClientManager): pass
-            class MyOtherClient(ClientManager): pass
-            ...
-
-        and define, if necessary, your own behaviors depending on parameters, attributes, etc.
-
-    Args:
-        listen_address (str, optional): address used when declaring a
-                                        :class:`Manager <multiprocessing.managers.BaseManager>`
-                                        object. Defaults to
-                                        :attr:`listen_address <orcha.properties.listen_address>`.
-        port (int, optional): port used when declaring a
-                              :class:`Manager <multiprocessing.managers.BaseManager>`
-                              object. Defaults to
-                              :attr:`port <orcha.properties.port>`.
-        auth_key (bytes, optional): authentication key used when declaring a
-                                    :class:`Manager <multiprocessing.managers.BaseManager>`
-                                    object. Defaults to
-                                    :attr:`authkey <orcha.properties.authkey>`.
-    """
-
-    def __init__(
-        self,
-        listen_address: str = properties.listen_address,
-        port: int = properties.port,
-        auth_key: Optional[bytes] = properties.authkey,
-    ):
-        super().__init__(
-            listen_address,
-            port,
-            auth_key,
-            create_processor=False,
-            is_client=True,
-        )
-
-    def convert_to_petition(self, _: Message):
-        """
-        Raises:
-            NotImplementedError
-        """
-        raise NotImplementedError()
-
-    def on_start(self, _: Petition):
-        """
-        Raises:
-            NotImplementedError
-        """
-        raise NotImplementedError()
-
-    def on_finish(self, _: Petition):
-        """
-        Raises:
-            NotImplementedError
-        """
-        raise NotImplementedError()
-
-
-__all__ = ["Manager", "ClientManager"]
+__all__ = ("Orcha",)

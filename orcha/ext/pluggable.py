@@ -65,14 +65,13 @@ class Pluggable(Nameable):
                 )
 
             if not hasattr(self, fname):
-                raise AttributeError(f'class "{type(self).__name__}" has no attribute "{fname}"')
+                raise AttributeError(f'class "{self.classname()}" has no attribute "{fname}"')
 
             return func(*args, **kwargs)
         except AttributeError:
             self.log.debug(
-                '[%s] API: plug "%s" has no attribute "%s", skipping...',
+                '[%s] API: plug has no attribute "%s", skipping...',
                 self.classname(),
-                type(self).__name__,
                 fname,
             )
         except Exception as e:

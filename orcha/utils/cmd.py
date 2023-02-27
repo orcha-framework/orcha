@@ -23,27 +23,24 @@
 from __future__ import annotations
 
 import shlex
-import signal
 import subprocess
 import typing
-
-import psutil
 
 from .logging_utils import get_logger
 from .ops import nop
 
 if typing.TYPE_CHECKING:
-    from typing import Any, Callable, Optional, Sequence, Union
+    from typing import Any, Callable, Sequence
 
 log = get_logger()
 
 
 def run_command(
-    cmd: Union[str, Sequence[str]],
+    cmd: str | Sequence[str],
     on_start: Callable[[subprocess.Popen], Any] = nop,
     on_output: Callable[[str], Any] = nop,
     on_finish: Callable[[int], Any] = nop,
-    cwd: Optional[str] = None,
+    cwd: str | None = None,
 ) -> int:
     """
     Runs a command in a "secure" environment redirecting stderr into stdout and
@@ -94,36 +91,3 @@ def run_command(
         ret = proc.wait()
     on_finish(ret)
     return ret
-
-
-def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SIGTERM) -> bool:
-    """
-    Attempts to kill the given PID and all of its children by sending the given
-    signal, if sufficient permissions.
-
-    Args:
-        pid (int): the PID to kill alongside with its children.
-        including_parent (bool): whether to kill also the PID itself. Defaults to :obj:`True`.
-        sig (int): the signal to send to the processes. Defaults to :attr:`signal.SIGTERM`.
-
-    Returns:
-        :obj:`bool`: :obj:`True` if the processes was successfully killed, :obj:`False` otherwise.
-
-    .. versionchanged:: 0.1.13
-        This function now returns a :obj:`bool` for indicating whether the killing
-        was successful or not.
-    """
-    try:
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
-            child.send_signal(sig)
-        if including_parent:
-            parent.send_signal(sig)
-
-        return True
-    except psutil.NoSuchProcess:
-        log.warning("error while trying to kill process with id %d", pid)
-        return True
-    except psutil.AccessDenied:
-        log.critical("orcha has no permissions for killing %d", pid)
-        return False

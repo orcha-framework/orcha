@@ -20,3 +20,6 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Set of embedded plugins that are part of the orchestrator"""
+from .manager import PluginManager
+
+__all__ = ["PluginManager"]

@@ -19,19 +19,35 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Type classes that may be used across the project"""
+"""Simple dummy client :class:`Manager <orcha.ext.Manager>` for using with
+:class:`Orcha <orcha.lib.Orcha>`"""
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Union
+import typing
 
-from typing_extensions import Protocol
+from orcha.ext.manager import Manager
+
+if typing.TYPE_CHECKING:
+    from typing import Iterable
+
+    from orcha.ext.message import Message
+    from orcha.ext.petition import Petition
+    from orcha.ext.pluggable import Pluggable
 
 
-class SupportsBool(Protocol):
-    @abstractmethod
-    def __bool__(self):
-        ...
+class Client(Manager):
+    """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
+    It simply raises a :obj:`NotImplementedError` for all methods.
+    """
 
+    def on_start(self, petition: Petition) -> bool:
+        raise NotImplementedError()
 
-Bool = Union[bool, SupportsBool]
+    def on_finish(self, petition: Petition):
+        raise NotImplementedError()
+
+    def convert_to_petition(self, m: Message) -> Petition | None:
+        raise NotImplementedError()
+
+    def get_plugs(self) -> Iterable[Pluggable] | None:
+        raise NotImplementedError()

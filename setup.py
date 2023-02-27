@@ -2,10 +2,11 @@ from setuptools import setup
 
 setup(
     name="orcha",
-    version="0.3.0-rc4",
+    version="0.3.0-rc5",
     packages=[
         "orcha.bin",
         "orcha.exceptions",
+        "orcha.ext",
         "orcha.interfaces",
         "orcha.lib",
         "orcha.plugins",

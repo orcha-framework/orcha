@@ -29,6 +29,7 @@ import errno
 import multiprocessing
 import random
 import typing
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from queue import Empty, PriorityQueue, Queue
@@ -37,19 +38,13 @@ from threading import Lock, Thread
 from typing_extensions import final
 
 from orcha import properties
-from orcha.interfaces import (
-    EmptyPetition,
-    Message,
-    Petition,
-    PetitionState,
-    Placeholder,
-)
+from orcha.ext.message import Message
+from orcha.ext.petition import Petition, PetitionState
+from orcha.lib.petition import EMPTY_PETITION_ID, EmptyPetition, Placeholder
 from orcha.utils import get_logger, nop
 
 if typing.TYPE_CHECKING:
-    from typing import Dict, List, Optional, Union
-
-    from orcha.lib import Manager
+    from orcha.lib import Orcha
 
 log = get_logger()
 
@@ -223,9 +218,9 @@ class Processor:
 
     def __init__(
         self,
-        queue: Optional[multiprocessing.Queue] = None,
-        finishq: Optional[multiprocessing.Queue] = None,
-        manager: Optional[Manager] = None,
+        queue: multiprocessing.Queue | None = None,
+        finishq: multiprocessing.Queue | None = None,
+        orcha: Orcha | None = None,
         look_ahead: int = 1,
     ):
         if self.__must_init__:
@@ -233,22 +228,22 @@ class Processor:
                 raise ValueError("queue must have a value during first initialization")
             if finishq is None:
                 raise ValueError("finish queue must have a value during first initialization")
-            if manager is None:
+            if orcha is None:
                 raise ValueError("manager must have a value during first initialization")
 
             self._lock = Lock()
-            self._queue = queue
-            self._finishq = finishq
-            self.manager = manager
+            self._queue: Queue[Message | None] = queue
+            self._finishq: Queue[Message | None] = finishq
+            self.orcha = orcha
             self.look_ahead = look_ahead
             self._finished = multiprocessing.Event()
             self.running = True
 
             self._executor = ThreadPoolExecutor(max_workers=properties.max_workers)
-            self._internalq = PriorityQueue()
-            self._signals = Queue()
-            self._threads: List[Thread] = []
-            self._petitions: Dict[Union[int, str], Petition] = {}
+            self._internalq: Queue[Petition] = PriorityQueue()
+            self._signals: Queue[Message | int | str | None] = Queue()
+            self._threads: list[Thread] = []
+            self._petitions: dict[int | str, Petition] = {}
             self._gc_event = multiprocessing.Event()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
@@ -284,7 +279,7 @@ class Processor:
         with self._lock:
             self._look_ahead = v
 
-    def wait(self, n: Optional[float] = None) -> bool:
+    def wait(self, n: float | None = None) -> bool:
         """Waits the specified amount of time (in seconds) or until
         the main process is done (it is, until :attr:`running` returns
         :obj:`False`), the default.
@@ -299,7 +294,7 @@ class Processor:
         """
         return self._finished.wait(n)
 
-    def is_running(self, m: Union[Message, int, str]) -> bool:
+    def is_running(self, m: Message | int | str) -> bool:
         """
         Checks if the given message is running or not.
 
@@ -320,7 +315,7 @@ class Processor:
             A message is considered to not exist iff **it's not running**, but can
             be enqueued waiting for its turn.
         """
-        return self.manager.is_running(m)
+        return self.orcha.is_running(m)
 
     def enqueue(self, m: Message):
         """Shortcut for::
@@ -332,7 +327,7 @@ class Processor:
         """
         self._queue.put(m)
 
-    def finish(self, m: Union[Message, int, str]):
+    def finish(self, m: Message | int | str):
         """Sets a finish signal for the given message.
 
         .. versionchanged:: 0.1.6
@@ -352,7 +347,59 @@ class Processor:
         log.fatal("unhandled exception at %s: %s", function, exception, exc_info=exception)
         log.fatal("finishing orchestrator...")
         self.running = False
-        self.manager.shutdown(errno.EINVAL)
+        self.orcha.shutdown(errno.EINVAL)
+
+    def _pop_message(self) -> Message | None:
+        with suppress(Empty):
+            m = self._queue.get(timeout=properties.queue_timeout)
+            if m is None:
+                return None
+
+            if self.is_running(m):
+                log.warning("received message (%s) already running", m)
+                return None
+
+            return m
+        return None
+
+    def _process_message(self, message: Message) -> Petition | None:
+        self._petitions[message.id] = Placeholder(message.id)
+        log.debug('converting message "%s" into a petition', message)
+        # make sure petition "p" always exists
+        p: Petition | None = None
+        try:
+            p = self.orcha.on_message_preconvert(message)
+        except Exception as e:
+            log.critical(
+                'exception when trying to convert message "%s"! No errors '
+                "are expected to happen when creating a petition",
+                message,
+            )
+            log.warning(e)
+            self._petitions.pop(message.id)
+            return None
+
+        if p is None:
+            log.debug('message "%s" is invalid, skipping...', message)
+            self._petitions.pop(message.id)
+            return None
+
+        log.debug("> %s", p)
+        return p
+
+    def _prepare_petition(self, petition: Petition):
+        if not isinstance(petition, EmptyPetition):
+            self.orcha.on_petition_create(petition)
+            # recover state from placeholder petition
+            petition.state = self._petitions[petition.id].state
+
+        # when done (or on EmptyPetition), try to enqueue it or finish, depending on the state
+        self._petitions[petition.id] = petition
+        if not petition.state.is_in_broken_state:
+            petition.state = PetitionState.ENQUEUED
+            self._internalq.put(petition)
+        else:
+            self._do_signal(petition.id)
 
     def _process(self):
         if properties.authkey is not None:
@@ -364,43 +411,14 @@ class Processor:
         try:
             while self.running:
                 log.debug("waiting for message...")
-                with suppress(Empty):
-                    m: Optional[Message] = self._queue.get(timeout=properties.queue_timeout)
-                    if m is not None:
-                        if self.is_running(m.id):
-                            log.warning("received message (%s) already running", m)
-                            continue
-                        self._petitions[m.id] = Placeholder(m.id)
-                        log.debug('converting message "%s" into a petition', m)
-                        # make sure petition 'p' always exists
-                        p: Optional[Petition] = None
-                        try:
-                            p = self.manager.on_message_preconvert(m)
-                        except Exception as e:
-                            log.critical(
-                                'exception when trying to convert message "%s"! No errors '
-                                "are expected to happen when creating a petition",
-                                m,
-                            )
-                            log.warning(e)
-                            self._petitions.pop(m.id)
-                            continue
-                        if p is not None:
-                            log.debug("> %s", p)
-                            self.manager.on_petition_create(p)
-                        else:
-                            log.debug('message "%s" is invalid, skipping...', m)
-                            self._petitions.pop(m.id)
-                            continue
-                        p.state = self._petitions[p.id].state
-                    else:
-                        p = EmptyPetition()
-                    self._petitions[p.id] = p
-                    if not p.state.is_in_broken_state:
-                        p.state = PetitionState.ENQUEUED
-                        self._internalq.put(p)
-                    else:
-                        self._do_signal(p.id)
+                message = self._pop_message()
+                petition = EmptyPetition() if message is None else self._process_message(message)
+
+                # invalid petition
+                if petition is None:
+                    continue
+
+                self._prepare_petition(petition)
         except Exception as e:
             self._fatal_error("message processor thread", e)
 
@@ -424,7 +442,7 @@ class Processor:
             log.debug('petition "%s" finished, triggering callbacks', p)
             self._petitions.pop(p.id, None)
 
-            self.manager.finish_petition(p)
+            self.orcha.finish_petition(p)
 
         return callback
 
@@ -432,7 +450,7 @@ class Processor:
         # Petition's condition is checked before this call
         log.debug('launching petition "%s"', p)
         try:
-            healthy = self.manager.start_petition(p)
+            healthy = self.orcha.start_petition(p)
         except Exception as e:
             log.critical("Unable to start petition %s with error: %s", p, e)
             p.state = PetitionState.BROKEN
@@ -441,44 +459,61 @@ class Processor:
         f = self._executor.submit(p.action, p) if healthy else self._executor.submit(nop)
         f.add_done_callback(self._on_petition_done_callback(p))
 
+    def _pop_petition(self) -> Petition | None:
+        with suppress(Empty):
+            return self._internalq.get(timeout=properties.queue_timeout)
+        return None
+
+    def _handle_petitions(
+        self, petitions: deque[Petition], unsuccessful_petitions: list[Petition]
+    ) -> int | str:
+        last_id = -1
+        while len(petitions) > 0:
+            petition = petitions.popleft()
+            last_id = petition.id
+            if isinstance(petition, EmptyPetition):
+                break
+
+            log.debug('adding petition "%s" to list of possible petitions', petition)
+            try:
+                ret = self.orcha.check(petition)
+            except Exception as e:
+                petition.state = PetitionState.BROKEN
+                log.warning(
+                    'unhandled exception while checking petition "%s": %s', petition, e, exc_info=e
+                )
+                break
+
+            if ret:
+                self._do_start(petition)
+            # ignore all possible broken/cancelled petitions
+            elif petition.state.is_enqueued:
+                unsuccessful_petitions.append(petition)
+
+        return last_id
+
+    def _grab_petitions(self) -> deque[Petition]:
+        petitions: deque[Petition] = deque()
+        for i in range(1, self.look_ahead + 1):
+            p = self._pop_petition()
+            if p is not None:
+                petitions.append(p)
+
+            if i > self._internalq.qsize():
+                break
+
+        return petitions
+
     def _internal_process(self):
         try:
             last_seen_petition = None
             while self.running:
                 log.debug("waiting for next %d internal petition(s)...", self.look_ahead)
-                empty = False
-                last_petition = 0
+                last_petition_id = 0
                 unsuccessful_petitions = []
-                for i in range(1, self.look_ahead + 1):
-                    with suppress(Empty):
-                        p: Petition = self._internalq.get(timeout=properties.queue_timeout)
-                        if not isinstance(p, EmptyPetition):
-                            log.debug('adding petition "%s" to list of possible petitions', p)
-                            try:
-                                ret = self.manager.check(p)
-                            except Exception as e:
-                                p.state = PetitionState.BROKEN
-                                log.warning(
-                                    'unhandled exception while checking petition "%s": %s',
-                                    p,
-                                    e,
-                                    exc_info=e,
-                                )
-                            else:
-                                last_petition = p.id
-                                if ret:
-                                    self._do_start(p)
-                                    break
-                                # ignore all possible broken/cancelled petitions
-                                if p.state.is_enqueued:
-                                    unsuccessful_petitions.append(p)
-                        else:
-                            log.debug("received empty petition")
-                            empty = True
-                            break
-
-                    if i > self._internalq.qsize():
-                        break
+                petitions = self._grab_petitions()
+                last_petition_id = self._handle_petitions(petitions, unsuccessful_petitions)
+                empty = last_petition_id == EMPTY_PETITION_ID
 
                 for petition in unsuccessful_petitions:
                     log.debug(
@@ -486,10 +521,10 @@ class Processor:
                     )
                     self._internalq.put(petition)
 
-                if not empty and last_seen_petition == last_petition:
+                if not empty and last_seen_petition == last_petition_id:
                     self.wait(random.uniform(0.5, 5))
 
-                last_seen_petition = last_petition
+                last_seen_petition = last_petition_id
             log.debug("internal process handler finished")
 
         except Exception as e:
@@ -511,28 +546,35 @@ class Processor:
         except Exception as e:
             self._fatal_error("signal processor thread", e)
 
-    def _do_signal(self, id: Union[int, str]):
+    def _do_signal(self, id: int | str):
         petition = self._petitions.pop(id)
         finish_t = Thread(target=self._finish, args=(petition,))
         finish_t.start()
         self._threads.append(finish_t)
 
+    def _pop_signal(self) -> int | str | None:
+        with suppress(Empty):
+            m = self._signals.get(timeout=properties.queue_timeout)
+            if isinstance(m, Message):
+                m = m.id
+
+            return m
+        return None
+
     def _internal_signal_handler(self):
         try:
             while self.running:
                 log.debug("waiting for internal signal...")
-                with suppress(Empty):
-                    m = self._signals.get(timeout=properties.queue_timeout)
-                    if isinstance(m, Message):
-                        m = m.id
+                signal_id = self._pop_signal()
+                if signal_id is None:
+                    continue
 
-                    if m is not None:
-                        log.debug('received signal petition for message with ID "%s"', m)
-                        if m not in self._petitions:
-                            log.warning('message with ID "%s" not found or not running!', m)
-                            continue
+                log.debug('received signal petition for message with ID "%s"', signal_id)
+                if signal_id not in self._petitions:
+                    log.debug('message with ID "%s" not found or not running!', signal_id)
+                    continue
 
-                        self._do_signal(m)
+                self._do_signal(signal_id)
         except Exception as e:
             self._fatal_error("signal handler thread", e)
 
@@ -557,7 +599,7 @@ class Processor:
                 p.communicate(f"Failed to finish petition with ID {p.id}\n")
                 p.communicate(f"{e}\n")
         finally:
-            self.manager.finish_petition(p)
+            self.orcha.finish_petition(p)
             if p.queue is not None:
                 p.finish()
 

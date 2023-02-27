@@ -20,6 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Orcha globally used exceptions"""
+from __future__ import annotations
+
 from .shutdown import ManagerShutdownError
 from .state import InvalidStateError
 
