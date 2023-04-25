@@ -30,13 +30,16 @@ from dataclasses import dataclass, field
 from typing_extensions import final
 
 from ..lib.orcha import Orcha
+from ..lib.wrapper import MessageWrapper
 from ..utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
     from argparse import ArgumentParser, Namespace
     from typing import Callable, Type
+    from queue import Queue
 
     from orcha.ext.manager import Manager
+    from orcha.ext.message import Message
 
 
 log = get_logger()
@@ -140,7 +143,7 @@ class BasePlugin(ABC):
     your command.
     """
 
-    service_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
+    server_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
     """
     Function to be run when Orcha asks the plugin for its service parser, if any. Setting this
     function to :obj:`None` disables the service functionality for this plugin (it is,
@@ -199,35 +202,7 @@ class BasePlugin(ABC):
     """
 
     @final
-    def __init__(self, service_parser: ArgumentParser, client_parser: ArgumentParser):
-        if self.service_parser is not None:
-            self.service_parser(self._create_parser(service_parser))
-
-        if self.client_parser is not None:
-            self.client_parser(self._create_parser(client_parser))
-
-    @final
-    def _create_parser(self, parser: ArgumentParser) -> ArgumentParser:
-        subparser = parser.add_subparsers(help=self.help, required=True)
-        p = subparser.add_parser(self.name, help=self.help, aliases=self.aliases)
-        p.set_defaults(owner=self)
-        p.add_argument("--version", action="version", version=self.version())
-        return p
-
-    @final
-    def can_handle(self, owner: BasePlugin) -> bool:
-        """Returns whether if the plugin can handle the input command or not
-
-        Args:
-            owner (BasePlugin): instance that "owns" the input command.
-
-        Returns:
-            bool: :obj:`True` if the plugin can handle the command, :obj:`False` otherwise.
-        """
-        return self is owner
-
-    @final
-    def service_main(self, orcha: Orcha) -> int:
+    def server_main(self, orcha: Orcha) -> int:
         ret = 0
 
         def do_shutdown(*_):
@@ -248,25 +223,26 @@ class BasePlugin(ABC):
         return ret
 
     @abstractmethod
+    def client_message(self) -> Message:
+        ...
+
+    @abstractmethod
+    def client_handle(self, queue: Queue) -> int:
+        ...
+
     def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
-        """Handles the input command by probably running a main process. Notice that the
-        orchestrator instance **is not connected**, so the first thing you will need to do is
-        perform the :meth:`connect <orcha.lib.Orcha.connect>` to establish the communication with
-        the service.
-
-        Args:
-            namespace (:obj:`argparse.Namespace`): arguments received from CLI
-
-        Returns:
-            :obj:`int`: main application return code, if any
-        """
+        orcha.connect()
+        queue = orcha.Queue()
+        wrap = MessageWrapper(self.client_message(), queue)
+        orcha.send(wrap)
+        return self.client_handle(queue)
 
     @final
     def handle(self, namespace: Namespace, is_client: bool) -> int:
         orcha = Orcha.as_client() if is_client else Orcha.with_manager(self.manager)
         if is_client:
             return self.client_main(namespace, orcha)
-        return self.service_main(orcha)
+        return self.server_main(orcha)
 
     @staticmethod
     @abstractmethod

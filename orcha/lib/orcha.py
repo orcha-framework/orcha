@@ -25,28 +25,31 @@ from __future__ import annotations
 import errno
 import multiprocessing
 import typing
+from collections.abc import Iterable
 from multiprocessing.managers import SyncManager
 from warnings import warn
 
 from typing_extensions import final
 
 from orcha import properties
-from orcha.exceptions import ManagerShutdownError
+from orcha.exceptions import ManagerShutdownError, InvalidPluggableException
 from orcha.ext.manager import Manager
-from orcha.ext.message import Message
 from orcha.ext.petition import Petition, PetitionState
 from orcha.ext.pluggable import Pluggable
-from orcha.interfaces import Bool, is_implemented
+from orcha.interfaces import is_implemented
 from orcha.lib.client import Client
 from orcha.lib.processor import Processor
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
+    from queue import Queue
     from threading import Thread
     from typing import Any, Callable, Type
 
     from typing_extensions import Self
+
+    from orcha.lib.wrapper import MessageWrapper
 
 # system logger
 log = get_logger()
@@ -197,9 +200,7 @@ class Orcha:
         look_ahead: int,
     ):
         self.manager = manager_cls()
-        self.manager.look_ahead = look_ahead
-        """Underlying :class:`Manager <orcha.ext.Manager>` instance that takes care of doing the
-        processing of the petitions"""
+        self.look_ahead = look_ahead
 
         self._mp_manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         self._create_processor = create_processor
@@ -267,12 +268,17 @@ class Orcha:
             :obj:`int`: look ahead attribute.
         """
         with self._lock:
-            return self.manager.look_ahead
+            if hasattr(self.manager, "look_ahead"):
+                return self.manager.look_ahead
+            return self._look_ahead
 
     @look_ahead.setter
     def look_ahead(self, value: int):
         with self._lock:
-            self.manager.look_ahead = value
+            if hasattr(self.manager, "look_ahead"):
+                self.manager.look_ahead = value
+            else:
+                self._look_ahead = value
 
     @property
     def is_client(self) -> bool:
@@ -309,9 +315,21 @@ class Orcha:
             log.fatal(e)
             return False
 
+    def Queue(self, maxsize: int = 0) -> Queue:
+        return self._mp_manager.Queue(maxsize)
+
     def _close_plugs(self):
         tmp_plugs = self.manager.get_plugs()
         if tmp_plugs is not None:
+            if not isinstance(tmp_plugs, Iterable):
+                tmp_plugs = [tmp_plugs]
+
+            # Validate all the pluggables before freezing
+            for plug in tmp_plugs:
+                if not isinstance(plug, Pluggable):
+                    log.error("Found object %s while expecting a %s", type(plug), Pluggable.classname())
+                    raise InvalidPluggableException(f'Object "{plug}" is not a {Pluggable.classname()}')
+
             self._plugs = tuple(sorted(tmp_plugs))
 
     @final
@@ -451,7 +469,7 @@ class Orcha:
         setattr(self, name, temp)
 
     @final
-    def send(self, message: Message):
+    def send(self, message: MessageWrapper):
         """Sends a :class:`Message <orcha.interface.Message>` to the server manager.
         This method is a stub until :func:`setup` is called (as that function overrides it).
 
@@ -468,7 +486,7 @@ class Orcha:
         """
 
     @final
-    def finish(self, message: Message | int | str):
+    def finish(self, message: MessageWrapper | int | str):
         """Requests the ending of a running :class:`message <orcha.interfaces.Message>`.
         This method is a stub until :func:`setup` is called (as that function overrides it).
 
@@ -489,7 +507,7 @@ class Orcha:
         """
 
     @final
-    def _add_message(self, m: Message):
+    def _add_message(self, m: MessageWrapper):
         if not self._shutdown.is_set():
             return self._processor.enqueue(m)
 
@@ -497,13 +515,13 @@ class Orcha:
         raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
 
     @final
-    def _finish_message(self, m: Message | int | str):
+    def _finish_message(self, m: MessageWrapper | int | str):
         if not self._shutdown.is_set():
             return self._processor.finish(m)
 
         log.debug(
             "we're off - finish petition not accepted for message with ID %s",
-            m.id if isinstance(m, Message) else m,
+            m.id if isinstance(m, MessageWrapper) else m,
         )
         raise ManagerShutdownError("manager has been shutdown - no more petitions are accepted")
 
@@ -525,7 +543,7 @@ class Orcha:
         self.register("send", send_fn)
         self.register("finish", finish_fn)
 
-    def is_running(self, x: Message | Petition | int | str) -> bool:
+    def is_running(self, x: MessageWrapper | Petition | int | str) -> bool:
         """With the given arg, returns whether the petition is already
         running or not yet. Its state can be:
 
@@ -547,7 +565,7 @@ class Orcha:
             bool: whether if the petition is running or not
         """
         if not self.is_client:
-            if isinstance(x, (Message, Petition)):
+            if isinstance(x, (MessageWrapper, Petition)):
                 x = x.id
 
             with self._set_lock:
@@ -573,12 +591,13 @@ class Orcha:
 
     @final
     def check(self, petition: Petition) -> bool:
-        return (
-            not self.is_client
-            and petition.state.is_enqueued
-            and not self.is_running(petition)
-            and self.on_petition_check(petition, petition.condition(petition))
-        )
+        with self._petition_lock:
+            return (
+                not self.is_client
+                and petition.state.is_enqueued
+                and not self.is_running(petition)
+                and self.on_condition_check(petition)
+            )
 
     @final
     def start_petition(self, petition: Petition) -> bool:
@@ -667,26 +686,16 @@ class Orcha:
                     self.manager.on_finish(petition)
 
     @final
-    def run_hooks(self, name: str, *args, **kwargs):
-        for plug in self._plugs:
-            if not hasattr(plug, name):
-                continue
-
-            fn = getattr(plug, name)
-            if is_implemented(fn):
-                plug.run_hook(fn, *args, **kwargs)
-
-    @final
     def on_manager_start(self):
-        self.run_hooks("on_manager_start")
+        self.manager.run_hooks("on_manager_start")
 
     @final
     def on_manager_shutdown(self):
-        self.run_hooks("on_manager_shutdown")
+        self.manager.run_hooks("on_manager_shutdown")
 
     @final
     def on_message_preconvert(self, message: Message) -> Petition | None:
-        for plug in self._plugs:
+        for plug in self.manager.frozen_plugs:
             if is_implemented(plug.on_message_preconvert):
                 ret = plug.run_hook(plug.on_message_preconvert, message)
                 if ret is not None:
@@ -696,23 +705,28 @@ class Orcha:
 
     @final
     def on_petition_create(self, petition: Petition):
-        self.run_hooks("on_petition_create", petition)
+        self.manager.run_hooks("on_petition_create", petition)
 
     @final
-    def on_petition_check(self, petition: Petition, result: Bool) -> bool:
-        for plug in self._plugs:
-            if is_implemented(plug.on_petition_check):
-                result = plug.run_hook(plug.on_petition_check, petition, result, do_raise=True)
+    def on_condition_check(self, petition: Petition) -> bool:
+        res = self.manager.condition(petition)
+        plugs = iter(self.manager.frozen_plugs)
+        while res:
+            try:
+                plug = next(plugs)
+                if is_implemented(plug.on_condition_check):
+                    res = plug.run_hook(plug.on_condition_check, petition, do_raise=True)
+            except StopIteration:
+                break
 
-        try:
-            return bool(result)
-        except ValueError as e:
-            log.warning("return value cannot be casted to bool! - %s", e)
+        if not res:
+            self.manager.run_hooks("on_condition_fail", res)
             return False
+        return True
 
     @final
     def on_petition_start(self, petition: Petition):
-        for plug in self._plugs:
+        for plug in self.manager.frozen_plugs:
             if is_implemented(plug.on_petition_start):
                 plug.run_hook(plug.on_petition_start, petition)
 
@@ -721,7 +735,7 @@ class Orcha:
 
     @final
     def on_petition_finish(self, petition: Petition):
-        for plug in self._plugs:
+        for plug in self.manager.frozen_plugs:
             if is_implemented(plug.on_petition_finish):
                 plug.run_hook(plug.on_petition_finish, petition)
 

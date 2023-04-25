@@ -35,7 +35,9 @@ from orcha.utils import Nameable, get_class_logger
 if typing.TYPE_CHECKING:
     from typing import Callable, Optional, TypeVar
 
-    from orcha.interfaces import Bool, Message, Petition
+    from orcha.interfaces import Result
+    from orcha.ext import Petition
+    from orcha.lib.wrapper import MessageWrapper
 
     T = TypeVar("T")
 
@@ -95,18 +97,22 @@ class Pluggable(Nameable):
         """Before manager is shutdown"""
 
     @notimplemented
-    def on_message_preconvert(self, message: Message) -> Optional[Petition]:
+    def on_message_preconvert(self, message: MessageWrapper) -> Optional[Petition]:
         """Before convert_to_petition, if returns something then the convert_to_petition call
         is skipped"""
 
     @notimplemented
-    def on_petition_create(self, petition: Petition):
-        """Immediately after petition has been successfully created (i.e.: convert_to_petition)"""
-
-    @notimplemented
-    def on_petition_check(self, petition: Petition, result: Bool) -> Bool:
+    def on_condition_check(self, petition: Petition) -> Result:
         """Checks for the petition with a fixed state that will be fed to the next hook in the
         chain"""
+
+    @notimplemented
+    def on_condition_fail(self, result: Result):
+        """Executed when the condition for a petition did fail"""
+
+    @notimplemented
+    def on_petition_create(self, petition: Petition):
+        """Immediately after petition has been successfully created (i.e.: convert_to_petition)"""
 
     @notimplemented
     def on_petition_start(self, petition: Petition):

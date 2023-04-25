@@ -28,18 +28,29 @@ see: :class:`BasePlugin`.
 from __future__ import annotations
 
 import argparse
-import errno
 import multiprocessing
 import sys
+import typing
 
 import orcha.properties
 
-from ..plugins import ListPlugin, query_plugins
+from ..plugins import BasePlugin, ListPlugin, query_plugins
 from ..utils.logging_utils import get_logger
 from ..utils.packages import version
 
+if typing.TYPE_CHECKING:
+    from typing import Type
+
 # application universal logger
 log = get_logger()
+
+
+def create_parser(plugin: Type[BasePlugin], parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    subparser = parser.add_subparsers(help=plugin.help, required=True)
+    p = subparser.add_parser(plugin.name, help=plugin.help, aliases=plugin.aliases)
+    p.set_defaults(plugin=plugin)
+    p.add_argument("--version", action="version", version=plugin.version())
+    return p
 
 
 def main():
@@ -132,23 +143,25 @@ def main():
         required=True,
         metavar="command",
     )
-    serve_parser = subparsers.add_parser(
+    server_parser = subparsers.add_parser(
         "serve",
         help="Serves the given plugin acting as a service",
         aliases=("s", "srv"),
     )
-    run_parser = subparsers.add_parser(
+    client_parser = subparsers.add_parser(
         "run",
         help="Runs the given plugin acting as a client",
         aliases=("r",),
     )
-    run_parser.set_defaults(side="client")
+    client_parser.add_argument("--id")
+    client_parser.set_defaults(side="client")
 
     discovered_plugins = query_plugins()
-    plugins = [plugin(serve_parser, run_parser) for plugin in discovered_plugins]
-
-    # add our embedded ListPlugin to the list of available plugins
-    plugins.append(ListPlugin(serve_parser, run_parser))
+    discovered_plugins.append(ListPlugin)
+    for plugin in discovered_plugins:
+        plugin.server_parser(create_parser(plugin, server_parser))
+        plugin.client_parser(create_parser(plugin, client_parser))
+        client_parser.add_argument("id")
 
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
@@ -163,11 +176,8 @@ def main():
     for arg, value in vars(args).items():
         orcha.properties.extras[arg] = value
 
-    for plugin in plugins:
-        if plugin.can_handle(args.owner):
-            return plugin.handle(args, is_client=args.side == "client")
-
-    return errno.ENOENT
+    plugin: BasePlugin = args.plugin()
+    return plugin.handle(args, is_client=args.side == "client")
 
 
 if __name__ == "__main__":

@@ -31,8 +31,10 @@ from .utils import query_plugins
 
 if typing.TYPE_CHECKING:
     from argparse import Namespace
+    from queue import Queue
 
     from orcha.lib import Orcha
+    from orcha.ext import Message
 
 __version__ = "0.1.0"
 
@@ -49,10 +51,16 @@ class ListPlugin(BasePlugin):
     manager = PluginManager
     client_parser = nop  # setting an empty parser creates the parser but adds no further options
 
+    def client_message(self) -> Message:
+        raise NotImplementedError()
+
+    def client_handle(self, queue: Queue) -> int:
+        raise NotImplementedError()
+
     def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
         discovered_plugins = query_plugins()
+        discovered_plugins.append(type(self))
         plugins = [plugin.version() for plugin in discovered_plugins]
-        plugins.append(ListPlugin.version())
         plugins = sorted(plugins)
 
         res = [f"orcha - {version('orcha')}"]

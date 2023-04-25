@@ -19,35 +19,36 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Simple dummy client :class:`Manager <orcha.ext.Manager>` for using with
-:class:`Orcha <orcha.lib.Orcha>`"""
+"""Utilities related to the :class:`Pluggable` module"""
 from __future__ import annotations
 
 import typing
+from functools import lru_cache
 
-from orcha.ext.manager import Manager
+from orcha.ext.pluggable import Pluggable
+from orcha.exceptions import InvalidPluggableException
 
 if typing.TYPE_CHECKING:
-    from typing import Iterable
-
-    from orcha.lib.wrapper import MessageWrapper
-    from orcha.ext.petition import Petition
-    from orcha.ext.pluggable import Pluggable
+    from typing import Iterable, Any, Sequence, TypeGuard
 
 
-class Client(Manager):
-    """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
-    It simply raises a :obj:`NotImplementedError` for all methods.
-    """
+def validate_plugs(plugs: Iterable[Any]) -> TypeGuard[Iterable[Pluggable]]:
+    for plug in plugs:
+        if not isinstance(plug, Pluggable):
+            return False
 
-    def on_start(self, petition: Petition) -> bool:
-        raise NotImplementedError()
+    return True
 
-    def on_finish(self, petition: Petition):
-        raise NotImplementedError()
 
-    def convert_to_petition(self, m: MessageWrapper) -> Petition | None:
-        raise NotImplementedError()
+@lru_cache(maxsize=1, typed=True)
+def freeze_plugs(plugs: Any | Iterable[Any] | None) -> Sequence[Pluggable]:
+    if plugs is None:
+        return ()
 
-    def get_plugs(self) -> Iterable[Pluggable] | None:
-        raise NotImplementedError()
+    if not isinstance(plugs, Iterable):
+        plugs = [plugs]
+
+    if not validate_plugs(plugs):
+        raise InvalidPluggableException("One or more plugs are not subclasses of Pluggable")
+
+    return tuple(sorted(plugs))

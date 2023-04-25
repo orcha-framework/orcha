@@ -24,5 +24,6 @@ from __future__ import annotations
 
 from .shutdown import ManagerShutdownError
 from .state import InvalidStateError
+from .pluggable import InvalidPluggableException
 
-__all__ = ["ManagerShutdownError", "InvalidStateError"]
+__all__ = ["ManagerShutdownError", "InvalidStateError", "InvalidPluggableException"]

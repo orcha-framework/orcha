@@ -1,6 +1,6 @@
 #                                   MIT License
 #
-#              Copyright (c) 2022 Javier Alonso <jalonso@teldat.com>
+#              Copyright (c) 2023 Javier Alonso <jalonso@teldat.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to deal
@@ -19,35 +19,32 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Simple dummy client :class:`Manager <orcha.ext.Manager>` for using with
-:class:`Orcha <orcha.lib.Orcha>`"""
+"""
+The class :class:`Processor` is responsible for handing queues, objects and petitions.
+Alongside with :class:`Manager <orcha.lib.Manager>`, it's the heart of the orchestrator.
+"""
 from __future__ import annotations
 
 import typing
+from binascii import hexlify
+from random import randbytes
 
-from orcha.ext.manager import Manager
+from dataclasses import dataclass, field
 
 if typing.TYPE_CHECKING:
-    from typing import Iterable
+    from queue import Queue
 
-    from orcha.lib.wrapper import MessageWrapper
-    from orcha.ext.petition import Petition
-    from orcha.ext.pluggable import Pluggable
+    from orcha.ext.message import Message
 
 
-class Client(Manager):
-    """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
-    It simply raises a :obj:`NotImplementedError` for all methods.
-    """
+@dataclass
+class MessageWrapper:
+    message: Message
+    queue: Queue
+    id: str = field(default_factory=hexlify(randbytes(4)).decode, init=False)
 
-    def on_start(self, petition: Petition) -> bool:
-        raise NotImplementedError()
+    def __getattribute__(self, item: str):
+        if hasattr(self.message, item):
+            return getattr(self.message, item)
 
-    def on_finish(self, petition: Petition):
-        raise NotImplementedError()
-
-    def convert_to_petition(self, m: MessageWrapper) -> Petition | None:
-        raise NotImplementedError()
-
-    def get_plugs(self) -> Iterable[Pluggable] | None:
-        raise NotImplementedError()
+        super().__getattribute__(item)

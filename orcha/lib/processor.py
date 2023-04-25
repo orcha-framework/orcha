@@ -38,9 +38,9 @@ from threading import Lock, Thread
 from typing_extensions import final
 
 from orcha import properties
-from orcha.ext.message import Message
 from orcha.ext.petition import Petition, PetitionState
 from orcha.lib.petition import EMPTY_PETITION_ID, EmptyPetition, Placeholder
+from orcha.lib.wrapper import MessageWrapper
 from orcha.utils import get_logger, nop
 
 if typing.TYPE_CHECKING:
@@ -232,8 +232,8 @@ class Processor:
                 raise ValueError("manager must have a value during first initialization")
 
             self._lock = Lock()
-            self._queue: Queue[Message | None] = queue
-            self._finishq: Queue[Message | None] = finishq
+            self._queue: Queue[MessageWrapper | None] = queue
+            self._finishq: Queue[MessageWrapper | None] = finishq
             self.orcha = orcha
             self.look_ahead = look_ahead
             self._finished = multiprocessing.Event()
@@ -241,20 +241,17 @@ class Processor:
 
             self._executor = ThreadPoolExecutor(max_workers=properties.max_workers)
             self._internalq: Queue[Petition] = PriorityQueue()
-            self._signals: Queue[Message | int | str | None] = Queue()
+            self._signals: Queue[MessageWrapper | int | str | None] = Queue()
             self._threads: list[Thread] = []
             self._petitions: dict[int | str, Petition] = {}
-            self._gc_event = multiprocessing.Event()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
             self._finished_t = Thread(target=self._signal_handler)
             self._signal_t = Thread(target=self._internal_signal_handler)
-            self._gc_t = Thread(target=self._gc)
             self._process_t.start()
             self._internal_t.start()
             self._finished_t.start()
             self._signal_t.start()
-            self._gc_t.start()
             self.__must_init__ = False
 
     @property
@@ -272,12 +269,11 @@ class Processor:
     @property
     def look_ahead(self) -> int:
         """Amount of items to look ahead when querying the queue"""
-        return self._look_ahead
+        return self.orcha.look_ahead
 
     @look_ahead.setter
     def look_ahead(self, v: int):
-        with self._lock:
-            self._look_ahead = v
+        self.orcha.look_ahead = v
 
     def wait(self, n: float | None = None) -> bool:
         """Waits the specified amount of time (in seconds) or until
@@ -294,7 +290,7 @@ class Processor:
         """
         return self._finished.wait(n)
 
-    def is_running(self, m: Message | int | str) -> bool:
+    def is_running(self, m: MessageWrapper | int | str) -> bool:
         """
         Checks if the given message is running or not.
 
@@ -317,17 +313,17 @@ class Processor:
         """
         return self.orcha.is_running(m)
 
-    def enqueue(self, m: Message):
+    def enqueue(self, m: MessageWrapper):
         """Shortcut for::
 
             processor.queue.put(message)
 
         Args:
-            m (Message): the message to enqueue
+            m (MessageWrapper): the message to enqueue
         """
         self._queue.put(m)
 
-    def finish(self, m: Message | int | str):
+    def finish(self, m: MessageWrapper | int | str):
         """Sets a finish signal for the given message.
 
         .. versionchanged:: 0.1.6
@@ -337,7 +333,7 @@ class Processor:
             m (:obj:`Message` | :obj:`int` | :obj:`str`): the message or its
                 :attr:`id <orcha.interfaces.Message.id>` (if :obj:`int` or :obj:`str`).
         """
-        if isinstance(m, Message):
+        if isinstance(m, MessageWrapper):
             m = m.id
 
         log.debug("received petition for finish message with ID %s", m)
@@ -349,7 +345,7 @@ class Processor:
         self.running = False
         self.orcha.shutdown(errno.EINVAL)
 
-    def _pop_message(self) -> Message | None:
+    def _pop_message(self) -> MessageWrapper | None:
         with suppress(Empty):
             m = self._queue.get(timeout=properties.queue_timeout)
             if m is None:
@@ -362,7 +358,7 @@ class Processor:
             return m
         return None
 
-    def _process_message(self, message: Message) -> Petition | None:
+    def _process_message(self, message: MessageWrapper) -> Petition | None:
         self._petitions[message.id] = Placeholder(message.id)
         log.debug('converting message "%s" into a petition', message)
         # make sure petition "p" always exists
@@ -509,7 +505,6 @@ class Processor:
             last_seen_petition = None
             while self.running:
                 log.debug("waiting for next %d internal petition(s)...", self.look_ahead)
-                last_petition_id = 0
                 unsuccessful_petitions = []
                 petitions = self._grab_petitions()
                 last_petition_id = self._handle_petitions(petitions, unsuccessful_petitions)
@@ -548,9 +543,7 @@ class Processor:
 
     def _do_signal(self, id: int | str):
         petition = self._petitions.pop(id)
-        finish_t = Thread(target=self._finish, args=(petition,))
-        finish_t.start()
-        self._threads.append(finish_t)
+        self._executor.submit(self._finish, petition)
 
     def _pop_signal(self) -> int | str | None:
         with suppress(Empty):
@@ -603,20 +596,6 @@ class Processor:
             if p.queue is not None:
                 p.finish()
 
-            self._gc_event.set()
-
-    def _gc(self):
-        try:
-            while self.running:
-                if self._gc_event.wait(timeout=10.0):
-                    self._gc_event.clear()
-                    for thread in self._threads:
-                        if not thread.is_alive():
-                            log.debug('pruning thread "%s"', thread)
-                            self._threads.remove(thread)
-        except Exception as e:
-            self._fatal_error("garbage collector thread", e)
-
     def shutdown(self):
         """
         Finishes all the internal queues and threads, waiting for any pending requests to
@@ -652,10 +631,6 @@ class Processor:
 
             log.info("closing all running threads...")
             self._executor.shutdown()
-
-            log.info("waiting for garbage collector...")
-            self._gc_event.set()
-            self._gc_t.join(timeout=5)
 
             log.info("finished")
         except Exception as e:

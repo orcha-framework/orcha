@@ -19,35 +19,13 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Simple dummy client :class:`Manager <orcha.ext.Manager>` for using with
-:class:`Orcha <orcha.lib.Orcha>`"""
+"""Pluggable exception when an invalid class is found"""
 from __future__ import annotations
 
-import typing
 
-from orcha.ext.manager import Manager
-
-if typing.TYPE_CHECKING:
-    from typing import Iterable
-
-    from orcha.lib.wrapper import MessageWrapper
-    from orcha.ext.petition import Petition
-    from orcha.ext.pluggable import Pluggable
+class InvalidPluggableException(Exception):
+    """Exception that occurs when trying to add an object as a pluggable without
+    implementing the required interface."""
 
 
-class Client(Manager):
-    """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
-    It simply raises a :obj:`NotImplementedError` for all methods.
-    """
-
-    def on_start(self, petition: Petition) -> bool:
-        raise NotImplementedError()
-
-    def on_finish(self, petition: Petition):
-        raise NotImplementedError()
-
-    def convert_to_petition(self, m: MessageWrapper) -> Petition | None:
-        raise NotImplementedError()
-
-    def get_plugs(self) -> Iterable[Pluggable] | None:
-        raise NotImplementedError()
+__all__ = ["InvalidPluggableException"]

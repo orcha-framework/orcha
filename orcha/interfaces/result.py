@@ -1,6 +1,6 @@
 #                                   MIT License
 #
-#              Copyright (c) 2022 Javier Alonso <jalonso@teldat.com>
+#              Copyright (c) 2023 Javier Alonso <jalonso@teldat.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to deal
@@ -19,35 +19,24 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Simple dummy client :class:`Manager <orcha.ext.Manager>` for using with
-:class:`Orcha <orcha.lib.Orcha>`"""
+"""Enumerate that contains the result of the petition's condition"""
 from __future__ import annotations
 
-import typing
-
-from orcha.ext.manager import Manager
-
-if typing.TYPE_CHECKING:
-    from typing import Iterable
-
-    from orcha.lib.wrapper import MessageWrapper
-    from orcha.ext.petition import Petition
-    from orcha.ext.pluggable import Pluggable
+from dataclasses import dataclass
 
 
-class Client(Manager):
-    """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
-    It simply raises a :obj:`NotImplementedError` for all methods.
-    """
+@dataclass
+class Result:
+    res: bool
+    msg: str | None = None
 
-    def on_start(self, petition: Petition) -> bool:
-        raise NotImplementedError()
+    @classmethod
+    def ok(cls):
+        return cls(True)
 
-    def on_finish(self, petition: Petition):
-        raise NotImplementedError()
+    @classmethod
+    def err(cls, msg: str | None = None):
+        return cls(False, msg)
 
-    def convert_to_petition(self, m: MessageWrapper) -> Petition | None:
-        raise NotImplementedError()
-
-    def get_plugs(self) -> Iterable[Pluggable] | None:
-        raise NotImplementedError()
+    def __bool__(self):
+        return self.res

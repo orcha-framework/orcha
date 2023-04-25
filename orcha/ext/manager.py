@@ -25,27 +25,33 @@ from __future__ import annotations
 import typing
 from abc import ABC, abstractmethod
 
-if typing.TYPE_CHECKING:
-    from typing import Iterable
+from orcha.interfaces import is_implemented, Result
+from orcha.properties import look_ahead
+from orcha.utils import freeze_plugs
 
-    from .message import Message
+if typing.TYPE_CHECKING:
+    from typing import Iterable, Sequence
+    from typing_extensions import final
+
+    from orcha.lib.wrapper import MessageWrapper
     from .petition import Petition
     from .pluggable import Pluggable
 
 
 class Manager(ABC):
+    def __init__(self):
+        self._look_ahead = look_ahead
+
     @property
     def look_ahead(self) -> int:
-        """Amount of items to look ahead when querying the queue. This value can be changed
-        dynamically to adapt the queue forehead reading in order to avoid starvation situations."""
         return self._look_ahead
 
     @look_ahead.setter
-    def look_ahead(self, value: int):
-        self._look_ahead = value
+    def look_ahead(self, v: int):
+        self._look_ahead = v
 
     @abstractmethod
-    def convert_to_petition(self, m: Message) -> Petition | None:
+    def convert_to_petition(self, m: MessageWrapper) -> Petition | None:
         """With the given message, returns the corresponding :class:`Petition` object
         ready to be executed by :attr:`processor`.
 
@@ -140,14 +146,25 @@ class Manager(ABC):
             Moved from :mod:`orcha.lib` to :mod:`orcha.ext`.
         """
 
+    @abstractmethod
+    def condition(self, petition: Petition) -> Result:
+        """Determines whether the given petition can be run or not. This function may return a
+        :obj:`bool` or may raise an exception whose kind is :obj:`ConditionFailed`. Raising such an
+        exception will stop immediately further processing of the condition, and the hook
+        :meth:`on_condition_failed` will be called.
+
+        Raises:
+            :obj:`ConditionFailed`: when no further processing should be done.
+        """
+
     def get_plugs(self) -> Iterable[Pluggable] | None:
         """Returns an iterable of :class:`Pluggables <orcha.ext.Pluggable>` that will be used
         alongside the orchestrator. :class:`Pluggable <orcha.ext.Pluggable>`s allow extending the
         default behavior of the orchestrator in a simple way.
 
-        Note:
-            This method will be called only once. When Orcha already has the plugins activated,
-            it is impossible to change them at runtime.
+        Important:
+            This method will be called multiple times: Everytime a hook is meant to be run, this
+            function will be executed. Therefore, its functionality should be kept minimal.
 
         If your application does not require (or request) any plugin, this method can simply
         return :obj:`None` or implement a stub like::
@@ -158,8 +175,20 @@ class Manager(ABC):
         This way, Orcha understands there will be no plugins in use.
 
         Returns:
-            :obj:`Iterable[Pluggable]`, optional: an iterable of all of the plugins to install.
+            :obj:`Iterable[Pluggable]`, optional: an iterable of all the plugins to install.
         """
 
-    # TODO: freeze plugs
-    # TODO: run_hooks
+    @final
+    @property
+    def frozen_plugs(self) -> Sequence[Pluggable]:
+        return freeze_plugs(self.get_plugs())
+
+    @final
+    def run_hooks(self, name: str, *args, **kwargs):
+        for plug in self.frozen_plugs:
+            if not hasattr(plug, name):
+                continue
+
+            fn = getattr(plug, name)
+            if is_implemented(fn):
+                plug.run_hook(fn, *args, **kwargs)
