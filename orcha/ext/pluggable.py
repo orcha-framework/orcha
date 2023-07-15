@@ -29,11 +29,12 @@ import typing
 
 from typing_extensions import final
 
+from orcha.exceptions import AttributeNotFoundException, ConditionFailed
 from orcha.interfaces import notimplemented
 from orcha.utils import Nameable, get_class_logger
 
 if typing.TYPE_CHECKING:
-    from typing import Callable, Optional, TypeVar
+    from typing import Callable, Optional, TypeVar, Union, NoReturn
 
     from orcha.interfaces import Result
     from orcha.ext import Petition
@@ -67,14 +68,14 @@ class Pluggable(Nameable):
                 )
 
             if not hasattr(self, fname):
-                raise AttributeError(f'class "{self.classname()}" has no attribute "{fname}"')
+                raise AttributeNotFoundException(self.classname(), fname)
 
             return func(*args, **kwargs)
-        except AttributeError:
+        except AttributeNotFoundException as not_found:
             self.log.debug(
                 '[%s] API: plug has no attribute "%s", skipping...',
-                self.classname(),
-                fname,
+                not_found.class_name,
+                not_found.attribute,
             )
         except Exception as e:
             self.log.fatal(
@@ -102,9 +103,21 @@ class Pluggable(Nameable):
         is skipped"""
 
     @notimplemented
-    def on_condition_check(self, petition: Petition) -> Result:
+    def on_condition_check(self, petition: Petition) -> Union[Optional[ConditionFailed], NoReturn]:
         """Checks for the petition with a fixed state that will be fed to the next hook in the
-        chain"""
+        chain.
+
+        When the condition is not met, an exception should be raised. However, the class
+        (or subclass) :class:`ConditionFailed <orcha.exceptions.ConditionFailed>` could be return,
+        and it will be treated as if an exception was raised.
+
+        Returns:
+            :obj:`ConditionFailed` if the condition was not met, :obj:`None` otherwise.
+
+        Raises:
+            :class:`ConditionFailed <orcha.exceptions.ConditionFailed>` if the condition was not
+                met.
+        """
 
     @notimplemented
     def on_condition_fail(self, result: Result):

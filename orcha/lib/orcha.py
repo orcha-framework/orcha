@@ -32,7 +32,7 @@ from warnings import warn
 from typing_extensions import final
 
 from orcha import properties
-from orcha.exceptions import ManagerShutdownError, InvalidPluggableException
+from orcha.exceptions import ManagerShutdownError, InvalidPluggableException, ConditionFailed
 from orcha.ext.manager import Manager
 from orcha.ext.petition import Petition, PetitionState
 from orcha.ext.pluggable import Pluggable
@@ -45,7 +45,7 @@ from orcha.utils.logging_utils import get_logger
 if typing.TYPE_CHECKING:
     from queue import Queue
     from threading import Thread
-    from typing import Any, Callable, Type
+    from typing import Any, Callable, Type, Optional, NoReturn, Union
 
     from typing_extensions import Self
 
@@ -590,14 +590,20 @@ class Orcha:
         raise NotImplementedError()
 
     @final
-    def check(self, petition: Petition) -> bool:
+    def check(self, petition: Petition) -> Optional[NoReturn]:
         with self._petition_lock:
-            return (
-                not self.is_client
-                and petition.state.is_enqueued
-                and not self.is_running(petition)
-                and self.on_condition_check(petition)
-            )
+            if self.is_client:
+                raise ConditionFailed("not is a client", f"orcha instance {self} is a client")
+
+            if not petition.state.is_enqueued:
+                raise ConditionFailed("petition enqueued", f"petition {petition} is not enqueued")
+
+            if self.is_running(petition):
+                raise ConditionFailed("petition running", f"petition {petition} already running")
+
+            result = self.on_condition_check(petition)
+            if isinstance(result, ConditionFailed):
+                raise result
 
     @final
     def start_petition(self, petition: Petition) -> bool:
@@ -708,21 +714,25 @@ class Orcha:
         self.manager.run_hooks("on_petition_create", petition)
 
     @final
-    def on_condition_check(self, petition: Petition) -> bool:
+    def on_condition_check(self, petition: Petition) -> Union[Optional[ConditionFailed], NoReturn]:
         res = self.manager.condition(petition)
-        plugs = iter(self.manager.frozen_plugs)
-        while res:
-            try:
-                plug = next(plugs)
-                if is_implemented(plug.on_condition_check):
-                    res = plug.run_hook(plug.on_condition_check, petition, do_raise=True)
-            except StopIteration:
-                break
+        if isinstance(res, ConditionFailed):
+            return res
 
-        if not res:
-            self.manager.run_hooks("on_condition_fail", res)
-            return False
-        return True
+        plugs = iter(self.manager.frozen_plugs)
+        try:
+            plug = next(plugs)
+            if is_implemented(plug.on_condition_check):
+                res = plug.run_hook(plug.on_condition_check, petition, do_raise=True)
+                if isinstance(res, ConditionFailed):
+                    return res
+        except StopIteration:
+            pass
+
+    @final
+    def on_condition_failed(self, condition: ConditionFailed) -> None:
+        self.manager.condition_failed(condition)
+        self.manager.run_hooks("on_condition_failed", condition)
 
     @final
     def on_petition_start(self, petition: Petition):

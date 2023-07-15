@@ -38,6 +38,7 @@ from threading import Lock, Thread
 from typing_extensions import final
 
 from orcha import properties
+from orcha.exceptions import ConditionFailed
 from orcha.ext.petition import Petition, PetitionState
 from orcha.lib.petition import EMPTY_PETITION_ID, EmptyPetition, Placeholder
 from orcha.lib.wrapper import MessageWrapper
@@ -218,8 +219,8 @@ class Processor:
 
     def __init__(
         self,
-        queue: multiprocessing.Queue | None = None,
-        finishq: multiprocessing.Queue | None = None,
+        queue: multiprocessing.Queue[MessageWrapper | None] | None = None,
+        finishq: multiprocessing.Queue[MessageWrapper | None] | None = None,
         orcha: Orcha | None = None,
         look_ahead: int = 1,
     ):
@@ -232,8 +233,8 @@ class Processor:
                 raise ValueError("manager must have a value during first initialization")
 
             self._lock = Lock()
-            self._queue: Queue[MessageWrapper | None] = queue
-            self._finishq: Queue[MessageWrapper | None] = finishq
+            self._queue: multiprocessing.Queue[MessageWrapper | None] = queue
+            self._finishq: multiprocessing.Queue[MessageWrapper | None] = finishq
             self.orcha = orcha
             self.look_ahead = look_ahead
             self._finished = multiprocessing.Event()
@@ -471,16 +472,19 @@ class Processor:
                 break
 
             log.debug('adding petition "%s" to list of possible petitions', petition)
+            ready = False
             try:
-                ret = self.orcha.check(petition)
+                self.orcha.check(petition)
+                ready = True
+            except ConditionFailed as condition:
+                self.orcha.on_condition_failed(condition)
             except Exception as e:
                 petition.state = PetitionState.BROKEN
                 log.warning(
                     'unhandled exception while checking petition "%s": %s', petition, e, exc_info=e
                 )
-                break
 
-            if ret:
+            if ready:
                 self._do_start(petition)
             # ignore all possible broken/cancelled petitions
             elif petition.state.is_enqueued:
@@ -548,7 +552,7 @@ class Processor:
     def _pop_signal(self) -> int | str | None:
         with suppress(Empty):
             m = self._signals.get(timeout=properties.queue_timeout)
-            if isinstance(m, Message):
+            if isinstance(m, MessageWrapper):
                 m = m.id
 
             return m

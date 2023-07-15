@@ -28,4 +28,13 @@ class InvalidPluggableException(Exception):
     implementing the required interface."""
 
 
+class AttributeNotFoundException(Exception):
+    """There's no attribute - like a function - associated with the given pluggable."""
+
+    def __init__(self, class_name: str, attribute: str) -> None:
+        self.class_name = class_name
+        self.attribute = attribute
+        super().__init__(f'class "{class_name}" has no attribute "{attribute}"')
+
+
 __all__ = ["InvalidPluggableException"]

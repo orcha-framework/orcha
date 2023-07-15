@@ -5,18 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b8288875-4f05-4de6-bb56-7796e8965d7b" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/codeStyles/codeStyleConfig.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/orcha/exceptions/pluggable.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/orcha/interfaces/result.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/orcha/lib/wrapper.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/orcha/utils/pluggables.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/orcha.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/orcha.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/vagrant-manager.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.pre-commit-config.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/.pre-commit-config.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/bin/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/bin/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/exceptions/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/exceptions/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/ext/manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/ext/manager.py" afterDir="false" />
@@ -28,6 +23,8 @@
       <change beforePath="$PROJECT_DIR$/orcha/plugins/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/plugins/base.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/plugins/lp.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/plugins/lp.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/utils/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/utils/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/poetry.lock" beforeDir="false" afterPath="$PROJECT_DIR$/poetry.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,22 +52,22 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;dev&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/media/javinator9889/Data/Nextcloud/Programming/orcha/orcha/exceptions&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "WebServerToolWindowFactoryState": "false",
+    "git-widget-placeholder": "dev",
+    "last_opened_file_path": "/media/javinator9889/Data/Nextcloud/Programming/orcha",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "settings.editor.selected.configurable": "editor.preferences.fonts.default",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/orcha/exceptions" />
@@ -86,6 +83,7 @@
       <updated>1681854603280</updated>
       <workItem from="1681906047664" duration="13735000" />
       <workItem from="1682294887728" duration="12000" />
+      <workItem from="1682618672920" duration="239000" />
     </task>
     <servers />
   </component>

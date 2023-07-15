@@ -25,14 +25,15 @@ from __future__ import annotations
 import typing
 from abc import ABC, abstractmethod
 
-from orcha.interfaces import is_implemented, Result
+from orcha.interfaces import is_implemented
 from orcha.properties import look_ahead
 from orcha.utils import freeze_plugs
 
 if typing.TYPE_CHECKING:
-    from typing import Iterable, Sequence
+    from typing import Iterable, Sequence, Optional, NoReturn, Union
     from typing_extensions import final
 
+    from orcha.exceptions import ConditionFailed
     from orcha.lib.wrapper import MessageWrapper
     from .petition import Petition
     from .pluggable import Pluggable
@@ -147,7 +148,7 @@ class Manager(ABC):
         """
 
     @abstractmethod
-    def condition(self, petition: Petition) -> Result:
+    def condition(self, petition: Petition) -> Union[Optional[ConditionFailed], NoReturn]:
         """Determines whether the given petition can be run or not. This function may return a
         :obj:`bool` or may raise an exception whose kind is :obj:`ConditionFailed`. Raising such an
         exception will stop immediately further processing of the condition, and the hook
@@ -155,6 +156,15 @@ class Manager(ABC):
 
         Raises:
             :obj:`ConditionFailed`: when no further processing should be done.
+        """
+
+    def condition_failed(self, condition: ConditionFailed) -> None:
+        """Called when a condition fails, to perform the proper handling of it - such as create
+        some reports, etc.
+
+        Args:
+            condition (:obj:`ConditionFailed`): The exception containing all the information
+                about the unmet condition.
         """
 
     def get_plugs(self) -> Iterable[Pluggable] | None:

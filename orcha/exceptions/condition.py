@@ -1,6 +1,6 @@
 #                                   MIT License
 #
-#              Copyright (c) 2021 Javier Alonso <jalonso@teldat.com>
+#              Copyright (c) 2023 Javier Alonso <jalonso@teldat.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to deal
@@ -19,18 +19,26 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
-"""Orcha globally used exceptions"""
+"""Exception base class that must be used by Orcha to inform that a condition has not been met."""
 from __future__ import annotations
 
-from .condition import ConditionFailed
-from .shutdown import ManagerShutdownError
-from .state import InvalidStateError
-from .pluggable import InvalidPluggableException, AttributeNotFoundException
+from typing import TYPE_CHECKING
 
-__all__ = [
-    "ManagerShutdownError",
-    "InvalidStateError",
-    "InvalidPluggableException",
-    "AttributeNotFoundException",
-    "ConditionFailed",
-]
+if TYPE_CHECKING:
+    from typing import Optional, Dict, Any
+
+
+class ConditionFailed(Exception):
+    """The Orcha's condition was not met. The exception contains all the information that was
+    available when the condition was being evaluated."""
+
+    def __init__(self, condition: str, reason: str, environment: Optional[Dict[str, Any]] = None) -> None:
+        self.condition = condition
+        self.reason = reason
+        self.environment = environment
+
+        msg = f'The condition "{condition}" was not met: {reason}'
+        if environment is not None:
+            msg += f" (environmental information={environment})"
+
+        super().__init__(msg)
