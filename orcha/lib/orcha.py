@@ -362,9 +362,6 @@ class Orcha:
         If calling this method as a client, a warning is thrown.
         """
         if not self.is_client:
-            # fix AutoProxy class in Python versions < 3.9.*
-            autoproxy.fix()
-
             log.debug("serving manager forever")
             self.start()
             self.join()
@@ -692,16 +689,26 @@ class Orcha:
                     self.manager.on_finish(petition)
 
     @final
+    def run_hooks(self, name: str, *args, **kwargs):
+        for plug in self._plugs:
+            if not hasattr(plug, name):
+                continue
+
+            fn = getattr(plug, name)
+            if is_implemented(fn):
+                plug.run_hook(fn, *args, **kwargs)
+
+    @final
     def on_manager_start(self):
-        self.manager.run_hooks("on_manager_start")
+        self.run_hooks("on_manager_start")
 
     @final
     def on_manager_shutdown(self):
-        self.manager.run_hooks("on_manager_shutdown")
+        self.run_hooks("on_manager_shutdown")
 
     @final
-    def on_message_preconvert(self, message: Message) -> Petition | None:
-        for plug in self.manager.frozen_plugs:
+    def on_message_preconvert(self, message: MessageWrapper) -> Petition | None:
+        for plug in self._plugs:
             if is_implemented(plug.on_message_preconvert):
                 ret = plug.run_hook(plug.on_message_preconvert, message)
                 if ret is not None:
@@ -711,7 +718,7 @@ class Orcha:
 
     @final
     def on_petition_create(self, petition: Petition):
-        self.manager.run_hooks("on_petition_create", petition)
+        self.run_hooks("on_petition_create", petition)
 
     @final
     def on_condition_check(self, petition: Petition) -> Union[Optional[ConditionFailed], NoReturn]:
@@ -719,7 +726,7 @@ class Orcha:
         if isinstance(res, ConditionFailed):
             return res
 
-        plugs = iter(self.manager.frozen_plugs)
+        plugs = iter(self._plugs)
         try:
             plug = next(plugs)
             if is_implemented(plug.on_condition_check):
@@ -732,11 +739,11 @@ class Orcha:
     @final
     def on_condition_failed(self, condition: ConditionFailed) -> None:
         self.manager.condition_failed(condition)
-        self.manager.run_hooks("on_condition_failed", condition)
+        self.run_hooks("on_condition_failed", condition)
 
     @final
     def on_petition_start(self, petition: Petition):
-        for plug in self.manager.frozen_plugs:
+        for plug in self._plugs:
             if is_implemented(plug.on_petition_start):
                 plug.run_hook(plug.on_petition_start, petition)
 
@@ -745,7 +752,7 @@ class Orcha:
 
     @final
     def on_petition_finish(self, petition: Petition):
-        for plug in self.manager.frozen_plugs:
+        for plug in self._plugs:
             if is_implemented(plug.on_petition_finish):
                 plug.run_hook(plug.on_petition_finish, petition)
 

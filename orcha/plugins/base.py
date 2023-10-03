@@ -223,7 +223,7 @@ class BasePlugin(ABC):
         return ret
 
     @abstractmethod
-    def client_message(self) -> Message:
+    def client_message(self, args: Namespace) -> Message:
         ...
 
     @abstractmethod
@@ -233,7 +233,7 @@ class BasePlugin(ABC):
     def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
         orcha.connect()
         queue = orcha.Queue()
-        wrap = MessageWrapper(self.client_message(), queue)
+        wrap = MessageWrapper(self.client_message(namespace), queue)
         orcha.send(wrap)
         return self.client_handle(queue)
 
