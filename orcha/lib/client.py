@@ -28,8 +28,9 @@ import typing
 from orcha.ext.manager import Manager
 
 if typing.TYPE_CHECKING:
-    from typing import Iterable
+    from typing import Iterable, Union, Optional, NoReturn
 
+    from orcha.exceptions import ConditionFailed
     from orcha.lib.wrapper import MessageWrapper
     from orcha.ext.petition import Petition
     from orcha.ext.pluggable import Pluggable
@@ -39,6 +40,9 @@ class Client(Manager):
     """Dummy client for being used with :class:`Orcha <orcha.lib.Orcha>` when acting as a client.
     It simply raises a :obj:`NotImplementedError` for all methods.
     """
+
+    def condition(self, petition: Petition) -> Union[Optional[ConditionFailed], NoReturn]:
+        raise NotImplementedError()
 
     def on_start(self, petition: Petition) -> bool:
         raise NotImplementedError()

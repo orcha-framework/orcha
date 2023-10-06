@@ -23,13 +23,10 @@
 from __future__ import annotations
 
 from .decorators import is_implemented, notimplemented
-from .types import Bool, SupportsBool
 from .result import Result
 
 __all__ = [
-    "SupportsBool",
     "notimplemented",
     "is_implemented",
-    "Bool",
     "Result",
 ]

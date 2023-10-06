@@ -29,7 +29,7 @@ from collections.abc import Iterable
 from multiprocessing.managers import SyncManager
 from warnings import warn
 
-from typing_extensions import final
+from typing import final
 
 from orcha import properties
 from orcha.exceptions import ManagerShutdownError, InvalidPluggableException, ConditionFailed
@@ -200,7 +200,6 @@ class Orcha:
         look_ahead: int,
     ):
         self.manager = manager_cls()
-        self.look_ahead = look_ahead
 
         self._mp_manager = SyncManager(address=(listen_address, port), authkey=auth_key)
         self._create_processor = create_processor
@@ -213,6 +212,7 @@ class Orcha:
         self._plugs: tuple[Pluggable, ...] = tuple()
         self._plug_threads: list[Thread] = []
         self._started = False
+        self.look_ahead = look_ahead
 
         # clients don't need any processor
         if create_processor and not is_client:

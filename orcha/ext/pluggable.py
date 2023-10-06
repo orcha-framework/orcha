@@ -27,7 +27,7 @@ import inspect
 import logging
 import typing
 
-from typing_extensions import final
+from typing import final
 
 from orcha.exceptions import AttributeNotFoundException, ConditionFailed
 from orcha.interfaces import notimplemented

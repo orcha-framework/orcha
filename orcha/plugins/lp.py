@@ -51,7 +51,7 @@ class ListPlugin(BasePlugin):
     manager = PluginManager
     client_parser = nop  # setting an empty parser creates the parser but adds no further options
 
-    def client_message(self) -> Message:
+    def client_message(self, args: Namespace) -> Message:
         raise NotImplementedError()
 
     def client_handle(self, queue: Queue) -> int:

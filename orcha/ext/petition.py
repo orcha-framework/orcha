@@ -37,7 +37,6 @@ from functools import total_ordering
 from queue import Queue
 
 from orcha.exceptions import InvalidStateError
-from orcha.interfaces.types import Bool
 
 if typing.TYPE_CHECKING:
     from typing import Any, Callable
@@ -272,24 +271,6 @@ class Petition(ABC):
 
     .. versionchanged:: 0.3.0
         :attr:`action` no longer receives ``cb`` (callback) argument.
-    """
-
-    condition: Callable[[Self], Bool] = field(compare=False, repr=False)
-    """
-    Predicate that decides whether the request should be processed or not. It is a function
-    with the form::
-
-        def predicate(p: Petition) -> SupportsBool
-
-    If your petitions do not require any particular condition, you can always define an
-    empty predicate which always returns :obj:`True`::
-
-        petition = Petition(..., condition=lambda _: True)
-
-    .. versionchanged:: 0.3.0
-        Typing signature for this predicate has changed for returning
-        :obj:`orcha.interfaces.SupportsBool`, which allows better customization
-        and better integration with the new pluggable interface.
     """
 
     @property

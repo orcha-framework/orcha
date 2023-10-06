@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import final
+from typing import final
 
 from orcha.ext.petition import Petition
 from orcha.utils import nop, nopr

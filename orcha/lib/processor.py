@@ -35,7 +35,7 @@ from contextlib import suppress
 from queue import Empty, PriorityQueue, Queue
 from threading import Lock, Thread
 
-from typing_extensions import final
+from typing import final
 
 from orcha import properties
 from orcha.exceptions import ConditionFailed

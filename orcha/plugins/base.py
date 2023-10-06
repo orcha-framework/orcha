@@ -27,7 +27,7 @@ import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from typing_extensions import final
+from typing import final
 
 from ..lib.orcha import Orcha
 from ..lib.wrapper import MessageWrapper

@@ -26,7 +26,6 @@ from .logging_utils import LOGGER_NAME, get_class_logger, get_logger
 from .nameable import Nameable
 from .ops import nop, nopr
 from .packages import version
-from .pluggables import freeze_plugs
 
 __all__ = [
     "run_command",
@@ -37,5 +36,4 @@ __all__ = [
     "nop",
     "nopr",
     "Nameable",
-    "freeze_plugs",
 ]

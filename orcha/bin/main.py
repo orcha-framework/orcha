@@ -120,7 +120,7 @@ def main():
         metavar="KEY",
         type=str,
         default=None,
-        help="Authentication key used for verifying clients",
+        help="Authentication key used for verifying clients. If not given, a random key is used",
     )
     parser.add_argument(
         "--look-ahead-items",
@@ -153,15 +153,15 @@ def main():
         help="Runs the given plugin acting as a client",
         aliases=("r",),
     )
-    client_parser.add_argument("--id")
     client_parser.set_defaults(side="client")
 
     discovered_plugins = query_plugins()
     discovered_plugins.append(ListPlugin)
     for plugin in discovered_plugins:
-        plugin.server_parser(create_parser(plugin, server_parser))
-        plugin.client_parser(create_parser(plugin, client_parser))
-        client_parser.add_argument("id")
+        if plugin.server_parser is not None:
+            plugin.server_parser(create_parser(plugin, server_parser))
+        if plugin.client_parser is not None:
+            plugin.client_parser(create_parser(plugin, client_parser))
 
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address

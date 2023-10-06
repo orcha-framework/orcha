@@ -25,13 +25,10 @@ from __future__ import annotations
 import typing
 from abc import ABC, abstractmethod
 
-from orcha.interfaces import is_implemented
 from orcha.properties import look_ahead
-from orcha.utils import freeze_plugs
 
 if typing.TYPE_CHECKING:
-    from typing import Iterable, Sequence, Optional, NoReturn, Union
-    from typing_extensions import final
+    from typing import Iterable, Optional, NoReturn, Union
 
     from orcha.exceptions import ConditionFailed
     from orcha.lib.wrapper import MessageWrapper
@@ -187,18 +184,3 @@ class Manager(ABC):
         Returns:
             :obj:`Iterable[Pluggable]`, optional: an iterable of all the plugins to install.
         """
-
-    @final
-    @property
-    def frozen_plugs(self) -> Sequence[Pluggable]:
-        return freeze_plugs(self.get_plugs())
-
-    @final
-    def run_hooks(self, name: str, *args, **kwargs):
-        for plug in self.frozen_plugs:
-            if not hasattr(plug, name):
-                continue
-
-            fn = getattr(plug, name)
-            if is_implemented(fn):
-                plug.run_hook(fn, *args, **kwargs)

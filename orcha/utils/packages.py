@@ -23,12 +23,13 @@
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 
 # noinspection PyCompatibility
 if sys.version_info >= (3, 8):
-    from importlib.metadata import version as _version
+    from importlib.metadata import version as _version, PackageNotFoundError as NotFound
 else:
-    from pkg_resources import get_distribution
+    from pkg_resources import get_distribution, DistributionNotFound as NotFound
 
     def _version(pkg):
         return get_distribution(pkg).version
@@ -44,7 +45,9 @@ def version(package: str = "orcha") -> str:
     Returns:
         str: package version
     """
-    return _version(package)
+    with suppress(NotFound):
+        return _version(package)
+    return "~~unknown version~~"
 
 
 __all__ = ["version"]
