@@ -29,7 +29,7 @@ import errno
 import multiprocessing
 import random
 import typing
-from collections import deque
+from collections import deque, defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from queue import Empty, PriorityQueue, Queue
@@ -245,6 +245,8 @@ class Processor:
             self._signals: Queue[MessageWrapper | int | str | None] = Queue()
             self._threads: list[Thread] = []
             self._petitions: dict[int | str, Petition] = {}
+            self._seen_petitions: dict[int | str, int] = defaultdict(lambda: 0)
+            self._starving: set[int | str] = set()
             self._process_t = Thread(target=self._process)
             self._internal_t = Thread(target=self._internal_process)
             self._finished_t = Thread(target=self._signal_handler)
@@ -455,6 +457,11 @@ class Processor:
 
         f = self._executor.submit(p.action, p) if healthy else self._executor.submit(nop)
         f.add_done_callback(self._on_petition_done_callback(p))
+        self._seen_petitions.pop(p.id, None)
+        if p.id in self._starving:
+            self._starving.discard(p.id)
+        if len(self._starving) == 0:
+            self.look_ahead = self._old_look_ahead
 
     def _pop_petition(self) -> Petition | None:
         with suppress(Empty):
@@ -509,7 +516,7 @@ class Processor:
             last_seen_petition = None
             while self.running:
                 log.debug("waiting for next %d internal petition(s)...", self.look_ahead)
-                unsuccessful_petitions = []
+                unsuccessful_petitions: list[Petition] = []
                 petitions = self._grab_petitions()
                 last_petition_id = self._handle_petitions(petitions, unsuccessful_petitions)
                 empty = last_petition_id == EMPTY_PETITION_ID
@@ -518,7 +525,15 @@ class Processor:
                     log.debug(
                         'petition "%s" did not satisfy the condition, re-adding to queue', petition
                     )
+                    self._seen_petitions[petition.id] += 1
+                    if self._seen_petitions[petition.id] >= 1000:  # petition is starving
+                        self._starving.add(petition.id)
                     self._internalq.put(petition)
+
+                # if there are starving petitions, change the look ahead to handle one petition at a time
+                if len(self._starving) > 0:
+                    self._old_look_ahead = self.look_ahead
+                    self.look_ahead = 1
 
                 if not empty and last_seen_petition == last_petition_id:
                     self.wait(random.uniform(0.5, 5))

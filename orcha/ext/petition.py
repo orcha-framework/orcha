@@ -273,6 +273,15 @@ class Petition(ABC):
         :attr:`action` no longer receives ``cb`` (callback) argument.
     """
 
+    _seen: int = field(default=0, init=False, compare=False, repr=True)
+    """
+    How many times the processor has seen this petition. If it is too high, the petition is
+    starving, so the :class:`Processor` will change temporarily the `look_ahead` until the petition
+    runs.
+
+    .. versionadded:: 1.0.0
+    """
+
     @property
     def state(self) -> PetitionState:
         """Petition's state that indicates current step in the processing queue. Available
