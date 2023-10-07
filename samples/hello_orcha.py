@@ -91,4 +91,4 @@ class MyPlugin(BasePlugin):
 
     @staticmethod
     def version() -> str:
-        return "1.0.0"
+        return "hello_orcha - 1.0.0"
