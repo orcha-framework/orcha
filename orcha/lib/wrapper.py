@@ -37,14 +37,18 @@ if typing.TYPE_CHECKING:
     from orcha.ext.message import Message
 
 
+def _getattribute(obj, item):
+    return object.__getattribute__(obj, item)
+
+
 @dataclass
 class MessageWrapper:
     message: Message
     queue: Queue
     id: str = field(default_factory=hexlify(randbytes(4)).decode, init=False)
 
-    def __getattribute__(self, item: str):
-        if hasattr(self.message, item):
-            return getattr(self.message, item)
-
-        super().__getattribute__(item)
+    def __getattr__(self, item: str):
+        msg = _getattribute(self, "message")
+        if hasattr(msg, item):
+            return _getattribute(msg, item)
+        return _getattribute(self, item)
