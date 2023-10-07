@@ -147,6 +147,7 @@ def main():
         help="Serves the given plugin acting as a service",
         aliases=("s", "srv"),
     )
+    server_parser.set_defaults(side="server")
     client_parser = subparsers.add_parser(
         "run",
         help="Runs the given plugin acting as a client",
