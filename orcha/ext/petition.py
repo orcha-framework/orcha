@@ -251,28 +251,6 @@ class Petition(ABC):
         :attr:`queue` can be :obj:`None`.
     """
 
-    action: Callable[[Self], None] = field(compare=False, repr=False)
-    """
-    The action to be called when the petition is pop from the queue. It is a function with the
-    form::
-
-        def action(p: Petition) -> None
-
-    Notice that the action will
-    be built on "server side", meaning that this attribute will default to :obj:`None` at the
-    beginning (functions cannot be shared across processes).
-
-    As a :class:`Petition` is built from :class:`Message`, use the :attr:`Message.extras` for
-    defining how the petition will behave when :attr:`action` is called.
-
-    .. versionchanged:: 0.2.4
-        :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
-        :obj:`None`, as the function does return but no value.
-
-    .. versionchanged:: 0.3.0
-        :attr:`action` no longer receives ``cb`` (callback) argument.
-    """
-
     _seen: int = field(default=0, init=False, compare=False, repr=True)
     """
     How many times the processor has seen this petition. If it is too high, the petition is
@@ -354,6 +332,27 @@ class Petition(ABC):
 
         with suppress(ValueError):
             self.queue.put_nowait(message)
+
+    @abstractmethod
+    def action(self):
+        """
+        The action to be called when the petition is pop from the queue.
+
+        Notice that the action will
+        be built on "server side", meaning that this attribute will default to :obj:`None` at the
+        beginning (functions cannot be shared across processes).
+
+        As a :class:`Petition` is built from :class:`Message`, use the :attr:`Message.extras` for
+        defining how the petition will behave when :attr:`action` is called.
+
+        .. versionchanged:: 0.2.4
+            :attr:`action` type hinting was changed from :obj:`NoReturn <typing.NoReturn>` to
+            :obj:`None`, as the function does return but no value.
+
+        .. versionchanged:: 0.3.0
+            :attr:`action` no longer receives ``cb`` (callback) argument.
+        """
+
 
     def finish(self, ret: int | None = None):
         """
