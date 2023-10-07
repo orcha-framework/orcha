@@ -46,8 +46,7 @@ log = get_logger()
 
 
 def create_parser(plugin: Type[BasePlugin], parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    subparser = parser.add_subparsers(help=plugin.help, required=True)
-    p = subparser.add_parser(plugin.name, help=plugin.help, aliases=plugin.aliases)
+    p = parser.add_parser(plugin.name, help=plugin.help, aliases=plugin.aliases)
     p.set_defaults(plugin=plugin)
     p.add_argument("--version", action="version", version=plugin.version())
     return p
@@ -154,14 +153,16 @@ def main():
         aliases=("r",),
     )
     client_parser.set_defaults(side="client")
+    server_subparser = server_parser.add_subparsers(required=True)
+    client_subparser = client_parser.add_subparsers(required=True)
 
     discovered_plugins = query_plugins()
     discovered_plugins.append(ListPlugin)
     for plugin in discovered_plugins:
         if plugin.server_parser is not None:
-            plugin.server_parser(create_parser(plugin, server_parser))
+            plugin.server_parser(create_parser(plugin, server_subparser))
         if plugin.client_parser is not None:
-            plugin.client_parser(create_parser(plugin, client_parser))
+            plugin.client_parser(create_parser(plugin, client_subparser))
 
     args: argparse.Namespace = parser.parse_args()
     orcha.properties.listen_address = args.listen_address
