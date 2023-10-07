@@ -39,17 +39,15 @@ from orcha.ext.pluggable import Pluggable
 from orcha.interfaces import is_implemented
 from orcha.lib.client import Client
 from orcha.lib.processor import Processor
+from orcha.lib.wrapper import MessageWrapper
 from orcha.utils import autoproxy
 from orcha.utils.logging_utils import get_logger
 
 if typing.TYPE_CHECKING:
-    from queue import Queue
     from threading import Thread
     from typing import Any, Callable, Type, Optional, NoReturn, Union
 
     from typing_extensions import Self
-
-    from orcha.lib.wrapper import MessageWrapper
 
 # system logger
 log = get_logger()
