@@ -237,6 +237,7 @@ class Processor:
             self._finishq: multiprocessing.Queue[MessageWrapper | None] = finishq
             self.orcha = orcha
             self.look_ahead = look_ahead
+            self._old_look_ahead = look_ahead
             self._finished = multiprocessing.Event()
             self.running = True
 
