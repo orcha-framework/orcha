@@ -233,8 +233,10 @@ class BasePlugin(ABC):
     def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
         orcha.connect()
         queue = orcha.Queue()
-        wrap = MessageWrapper(self.client_message(namespace), queue)
-        orcha.send(wrap)
+        msg = self.client_message(namespace)
+        if msg is not None:
+            wrap = MessageWrapper(msg, queue)
+            orcha.send(wrap)
         return self.client_handle(queue)
 
     @final
