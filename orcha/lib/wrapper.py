@@ -50,5 +50,7 @@ class MessageWrapper:
     def __getattr__(self, item: str):
         msg = _getattribute(self, "message")
         if hasattr(msg, item):
-            return _getattribute(msg, item)
+            attr = _getattribute(msg, item)
+            if attr is not None:
+                return attr
         return _getattribute(self, item)
