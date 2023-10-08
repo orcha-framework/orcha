@@ -22,16 +22,19 @@
 """Different plugin utilities (i.e.: listing all installed plugins on the system)"""
 from __future__ import annotations
 
-import importlib
-import pkgutil
+import sys
 import typing
 
-from ..utils.logging_utils import get_logger
+from ..utils import get_logger
 from .base import BasePlugin
 
 if typing.TYPE_CHECKING:
     from typing import Type
 
+if sys.version_info < (3, 10):
+    from importlib_metadata import entry_points
+else:
+    from importlib.metadata import entry_points
 log = get_logger()
 
 
@@ -45,22 +48,10 @@ def query_plugins() -> list[Type[BasePlugin]]:
         list[BasePlugin]: a dictionary whose keys are module names and the value is
                                the module itself.
     """
-    discovered_plugins = {
-        name: importlib.import_module(name)
-        for _, name, _ in pkgutil.iter_modules()
-        if name.startswith("orcha_")
-    }
-    plugins = []
-    for plugin, mod in discovered_plugins.items():
-        pl: Type[BasePlugin] | None = getattr(mod, "plugin", None)
-        if pl is None:
-            log.warning(
-                'invalid plugin specified for "%s". '
-                "Is there a plugin export class defined in __init__?",
-                plugin,
-            )
-            continue
-
+    plugins_eps = entry_points(group="orcha-framework")
+    plugins: list[Type[BasePlugin]] = []
+    for plugin in plugins_eps:
+        pl: Type[BasePlugin] = plugin.load()
         if not issubclass(pl, BasePlugin):
             log.warning(
                 'invalid class "%s" found when loading plugin "%s" - not a "BasePlugin" subclass',

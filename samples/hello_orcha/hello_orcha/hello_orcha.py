@@ -5,7 +5,7 @@ from queue import Queue
 from typing import Optional, NoReturn
 from dataclasses import dataclass, field
 from multiprocessing import Process
-from time import sleep
+from time import sleep, monotonic
 from contextlib import suppress
 
 from orcha import ConditionFailed
@@ -21,6 +21,7 @@ class MyPetition(Petition):
     sleep_time: float = field(compare=False)
     proc: Optional[Process] = field(compare=False, default=None)
     condition = nopr(True)
+    priority = monotonic()
 
     def action(self):
         self.proc = Process(target=count_and_sleep, args=(self, self.counter, self.sleep_time))

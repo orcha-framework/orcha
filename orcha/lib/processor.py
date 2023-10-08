@@ -372,10 +372,10 @@ class Processor:
         except Exception as e:
             log.critical(
                 'exception when trying to convert message "%s"! No errors '
-                "are expected to happen when creating a petition",
-                message,
+                "are expected to happen when creating a petition: %s",
+                message, e,
             )
-            log.warning(e)
+            log.debug(e, exc_info=e)
             self._petitions.pop(message.id)
             return None
 
@@ -456,7 +456,7 @@ class Processor:
             p.state = PetitionState.BROKEN
             healthy = False
 
-        f = self._executor.submit(p.action, p) if healthy else self._executor.submit(nop)
+        f = self._executor.submit(p.action) if healthy else self._executor.submit(nop)
         f.add_done_callback(self._on_petition_done_callback(p))
         self._seen_petitions.pop(p.id, None)
         if p.id in self._starving:

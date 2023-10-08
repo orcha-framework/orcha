@@ -5,8 +5,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b8288875-4f05-4de6-bb56-7796e8965d7b" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/orcha/ext/petition.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/ext/petition.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/samples/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/samples/hello_orcha/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/samples/hello_orcha/hello_orcha/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/orcha.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/orcha.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/orcha/lib/processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/lib/processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/orcha/lib/wrapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/lib/wrapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/orcha/plugins/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/orcha/plugins/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/poetry.lock" beforeDir="false" afterPath="$PROJECT_DIR$/poetry.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/samples/hello_orcha.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/hello_orcha/hello_orcha/hello_orcha.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -29,9 +38,9 @@
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 4
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
   <component name="ProjectId" id="2Oe14vr5YCvJpKaw0JIxsfDas20" />
   <component name="ProjectLevelVcsManager">
     <ConfirmationsSetting value="2" id="Add" />
@@ -40,25 +49,29 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "WebServerToolWindowFactoryState": "false",
-    "git-widget-placeholder": "dev",
-    "last_opened_file_path": "/media/javinator9889/Data/Nextcloud/Programming/orcha",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "settings.editor.selected.configurable": "Errors",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;dev&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/media/javinator9889/Data/Nextcloud/Programming/orcha&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;Errors&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/orcha/exceptions" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/samples/hello_orcha/hello_orcha" />
+      <recent name="$PROJECT_DIR$/samples/hello_orcha" />
     </key>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
@@ -76,6 +89,7 @@
       <workItem from="1696271568496" duration="2274000" />
       <workItem from="1696354698271" duration="2023000" />
       <workItem from="1696606062035" duration="2498000" />
+      <workItem from="1696754762319" duration="3995000" />
     </task>
     <servers />
   </component>

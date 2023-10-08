@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 
 if typing.TYPE_CHECKING:
     from queue import Queue
+    from typing import Any
 
     from orcha.ext.message import Message
 
@@ -54,3 +55,6 @@ class MessageWrapper:
             if attr is not None:
                 return attr
         return _getattribute(self, item)
+
+    def __getitem__(self, item: Any) -> Any:
+        return self.message.extras[item]
