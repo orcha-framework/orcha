@@ -20,6 +20,7 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Shutdown exception raised when a manager is destroyed"""
+from __future__ import annotations
 
 
 class ManagerShutdownError(Exception):
@@ -31,8 +32,6 @@ class ManagerShutdownError(Exception):
 
     :see: :py:class:`Exception`
     """
-
-    ...
 
 
 __all__ = ["ManagerShutdownError"]

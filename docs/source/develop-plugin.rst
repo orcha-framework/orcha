@@ -50,14 +50,23 @@ At the service manager we need to define basically the following things:
   :class:`Petition <orcha.interfaces.Petition>`.
 + The :func:`on_start() <orcha.lib.Manager.on_start>` method which allows
   us to do something when a process has started (if we need to do nothing,
-  we can simply call ``super`` here).
+  we can simply return :obj:`True` here).
 + The :func:`on_finish() <orcha.lib.Manager.on_finish>` method which allows
   us to do something when a process has finished (if we need to do nothing,
-  we can simply call ``super`` here).
+  we can simply call ``pass`` here).
 
 We can override any other public method defined at
 :class:`Manager <orcha.lib.Manager>` but with all of the above is OK
 to continue.
+
+.. note:: Since version ``v0.2.3`` the orchestrator natively supports integration
+    with SystemD (by placing the flag ``--systemd`` when starting it). This allows,
+    among other things, to detect whether Orcha may have become unresponsive so
+    it must be restarted.
+
+    If you are considering making a plugin that acts as a service (and would like
+    to use SystemD), inherit from :class:`orcha.lib.WatchdogManager` and follow
+    the tutorial but using such class instead.
 
 We also need to define a custom petition which will hold our process
 information. We only need to define a simple :class:`Petition <orcha.interfaces.Petition>`
@@ -138,15 +147,15 @@ will be::
 
 
     class ServiceManager(Manager):
-        def on_start(self, *args):
-            super().on_start(*args)
+        def on_start(self, *args) -> bool:
+            return True
 
         def on_finish(self, *args):
-            super().on_finish(*args)
+            pass
 
         def convert_to_petition(self, m: Message) -> Optional[Petition]:
             try:
-                return HWPetition(
+                return super().convert_to_petition(m) or HWPetition(
                     id=m.id,
                     queue=m.extras["queue"],
                     action=_action,
@@ -163,6 +172,19 @@ will be::
             # will be that the amount of running processes is not higher
             # than twice the amount of CPU cores we have
             return self.running_processes < mp.cpu_count()
+
+
+.. important:: If developing a plugin that will use :class:`WatchdogManager <orcha.lib.WatchdogManager>`
+    the appearance of the example above will be a little bit different::
+
+        from orcha.lib import WatchdogManager
+
+        class ServiceManager(WatchdogManager):
+            ...  # same as example above
+
+    This is the only thing that changes. Notice that since version ``0.2.6`` there is no
+    need to check if the received petition is a :class:`WatchdogPetition <orcha.interfaces.WatchdogPetition>`
+    or not.
 
 
 For the client we don't need any custom manager, so we can use Orcha's
@@ -382,6 +404,7 @@ with Orcha easily. We create the file as follows::
         author_email="jalonso@teldat.com",
         description="Say Hello World! from Orcha",
         zip_safe=False,
+        python_requires=">=3.7",
     )
 
 .. note::
@@ -390,6 +413,9 @@ with Orcha easily. We create the file as follows::
     troubles installing them and can lead to issues during start of the
     program. You can opt-in to enable it and check if it works, but
     consider disabling it if you notice errors during imports.
+
+    In addition, since Orcha ``v0.2.3`` the minimum required version is
+    Python 3.7 or higher.
 
 Then, we can proceed to install it on the system by running:
 
@@ -404,9 +430,129 @@ Then, issuing ``orcha ls`` must show the just installed plugin::
     $ orcha ls
     orcha - 0.1.5b9
     ├ list-plugins* - 0.0.1
-    └ orcha-hello-world - 0.1.0
+    ├ orcha-hello-world - 0.1.0
+    └ watchdog* - 0.0.1
 
     Plugins marked with an asterisk (*) are embedded plugins
+
+
+Creating a SystemD service
+--------------------------
+
+As already mentioned alongside this tutorial, when working with SystemD things
+are a little bit different. Orcha, on its own, already deploys a SystemD
+template that will interact with the orchestrator service if properly
+configured.
+
+Since version ``v0.2.3``, the orchestrator has native support for both SystemD
+status messages as well as SystemD watchdog, preventing the process to hold
+still and become unresponsive. For this mechanism to work, it is necessary to
+configure a SystemD service for your plugin that interacts with the
+orchestrator itself. This process is pretty straightforward but it will be
+explained for better comprehension.
+
+First things first, you may want to have multiple orchestrator instances
+running. Despite the process is almost similar to the one that is going
+to be described, only a few tips will be said.
+
+.. note:: What you basically want for deploying multiple orchestrator instances
+    is to have SystemD service templates. Here you have a `little example <https://fedoramagazine.org/systemd-template-unit-files/>`_
+    in which you can have some clues about how to do it.
+
+For this example though, only a single orchestrator service will be deployed.
+The appearance of Orcha's watchdog service is::
+
+    [Unit]
+    Description=Watchdog request for Orcha %i service
+    After=orcha-%i.service
+
+    [Service]
+    Type=notify
+    NotifyAccess=main
+    Environment=PYTHONUNBUFFERED=1
+    EnvironmentFile=/etc/orcha.d/orcha-%i.env
+    ExecStart=/usr/bin/orcha $LAUNCH_OPTS --systemd watchdog $WD_OPTIONS
+    PrivateTmp=true
+    ProtectSystem=true
+
+Apart from the details, what is interesting for us are the following lines:
+
+    #. Orcha expects an environment file to be present at
+       ``/etc/orcha.d/orcha-%i.env``. The ``%i`` stands for the template
+       name for this service (i.e.: for ``orcha-wd@example.service``,
+       ``%i`` will be ``example``).
+
+    #. There are some *launch options* (``$LAUNCH_OPTS``) that are expected
+       to be present in such file. Those launch options are, for example,
+       the authentication key, listening address and port. For a complete
+       list of those options, run ``orcha --help``.
+
+    #. There are some other options that can be added to the **embedded
+       watchdog plugin**, represented by ``$WD_OPTIONS`` (and can be empty).
+       For a full list of available options, run ``orcha watchdog --help``.
+
+    #. The service is instructed to be ``notify`` instead of ``oneshot``. This
+       is because the **watchdog plugin** communicates with SystemD for
+       reporting its status.
+
+    #. The service has a strong dependency on the service that starts it (see
+       section: ``After=``), which requires it to have a very specific name.
+       When simply using a single service, the template name must be the same
+       as the service itself, so it works. Following the example above, if
+       the watchdog service is called ``orcha-wd@example.service`` then your
+       plugin's service name must be ``orcha-example.service``.
+
+Having that in mind, what you need is to define a service that starts and
+installs Orcha's watchdog timer whenever your service is installed and
+started. The three main options you need to configure are:
+
+    * ``Wants=``, from ``[Unit]`` section.
+    * ``WatchdogSec=``, from ``[Install]`` section.
+    * ``Also=``, from ``[Install]`` section.
+
+The first one instructs SystemD to coordinate the main service with the
+watchdog service, starting it if necessary. The second one defines the
+maximum time with no responses from the main service allowed until
+killing it. The third one installs the watchdog service whenever your
+plugin's service is installed.
+
+It is interesting also to use the same environment file, so changes
+to one service are propagated to the watchdog and viceversa. Let's give
+a real example::
+
+    [Unit]
+    Description=Orcha example service
+    Wants=orcha-wd@example.timer
+
+    [Service]
+    Type=notify
+    NotifyAccess=all
+    EnvironmentFile=/etc/orcha.d/orcha-example.env
+    ExecStart=/usr/bin/orcha $LAUNCH_OPTS --systemd hello-world serve
+    Restart=on-failure
+    WatchdogSec=45s
+
+    [Install]
+    WantedBy=multi-user.target
+    Also=orcha-wd@example.timer
+
+The service above will launch a ``hello-world`` Orcha plugin as a
+**SystemD service** that can be unresponsive **up-to 45 seconds** after
+which **it will be killed** and **restarted** (because of
+``Restart=`` section). Additionally, it will **install**
+the ``orcha-wd@example.timer`` and **start it** if necessary.
+
+.. important:: The timer runs every **30 seconds**. If you need higher (or lower) frequency,
+    you can easily edit the SystemD timer for adjusting it. When running
+    ``sudo systemctl edit orcha-wd@example.timer``, just place::
+
+        [Timer]
+        OnCalendar=
+        OnCalendar=<your scheduling here>
+
+    It is important to mention that the timer is a strong dependency, meaning that
+    if the main service is stopped then the timer will be (and the same with the
+    rest of operations).
 
 
 Testing the installation

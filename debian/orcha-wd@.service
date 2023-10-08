@@ -1,0 +1,12 @@
+[Unit]
+Description=Watchdog request for Orcha %i service
+After=orcha-%i.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/orcha.d/orcha-%i.env
+ExecStart=/usr/bin/orcha $LAUNCH_OPTS watchdog $WD_OPTIONS
+PrivateTmp=true
+ProtectSystem=true

@@ -22,8 +22,13 @@
 """
 :class:`Message` specifies the message structure that will be accepted by the server.
 """
+from __future__ import annotations
+
+import typing
 from dataclasses import dataclass, field
-from typing import Union
+
+if typing.TYPE_CHECKING:
+    from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -43,14 +48,6 @@ class Message:
     :see: :py:mod:`pickle`
     """
 
-    id: Union[int, str] = field()
-    """
-    Unique identifier for the message. If duplicated, the message is rejected.
-
-    .. versionchanged:: 0.1.6
-       Accept :obj:`str` as unique ID identifier also.
-    """
-
     extras: dict = field(compare=False)
     """
     Arbitrary dictionary containing any extra information required for converting
@@ -59,4 +56,12 @@ class Message:
     to the server.
 
     :see: :py:mod:`pickle`
+    """
+
+    id: Optional[int | str] = field(default=None)
+    """
+    Unique identifier for the message. If duplicated, the message is rejected.
+
+    .. versionchanged:: 0.1.6
+       Accept :obj:`str` as unique ID identifier also.
     """

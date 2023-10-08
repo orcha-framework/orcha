@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "hello-orcha"
+version = "0.1.0"
+description = "Hello World example for Orcha framework"
+authors = ["Javinator9889 <dev@javinator9889.com>"]
+license = "MIT"
+packages = [{include = "hello_orcha"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+orcha = { path = "../../../orcha", develop = false }
+
+[tool.poetry.plugins.orcha-framework]
+hello_orcha = "hello_orcha:MyPlugin"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

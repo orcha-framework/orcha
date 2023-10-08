@@ -20,12 +20,23 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Embedded plugin for listing all installed plugins on the system"""
-import argparse
+from __future__ import annotations
 
-from ..utils.packages import version
-from .base import *
+import typing
 
-__version__ = "0.0.1"
+from ..utils import nop, version
+from .base import BasePlugin
+from .embedded import PluginManager
+from .utils import query_plugins
+
+if typing.TYPE_CHECKING:
+    from argparse import Namespace
+    from queue import Queue
+
+    from orcha.lib import Orcha
+    from orcha.ext import Message
+
+__version__ = "0.1.0"
 
 
 class ListPlugin(BasePlugin):
@@ -37,15 +48,19 @@ class ListPlugin(BasePlugin):
     name = "list-plugins"
     aliases = ("ls",)
     help = "list the installed plugins on the system and exit"
+    manager = PluginManager
+    client_parser = nop  # setting an empty parser creates the parser but adds no further options
 
-    def create_parser(self, parser: argparse.ArgumentParser):
-        # we do not need to add any argument here
-        pass
+    def client_message(self, args: Namespace) -> Message:
+        raise NotImplementedError()
 
-    def handle(self, _: argparse.Namespace) -> int:
+    def client_handle(self, queue: Queue) -> int:
+        raise NotImplementedError()
+
+    def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
         discovered_plugins = query_plugins()
+        discovered_plugins.append(type(self))
         plugins = [plugin.version() for plugin in discovered_plugins]
-        plugins.append(ListPlugin.version())
         plugins = sorted(plugins)
 
         res = [f"orcha - {version('orcha')}"]

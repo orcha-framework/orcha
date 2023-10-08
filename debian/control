@@ -2,27 +2,24 @@ Source: python3-orcha
 Section: python
 Priority: extra
 Maintainer: Javier Alonso <jalonso@teldat.com>
-Build-Depends: 
+Build-Depends:
   debhelper (>= 11~),
   dh-python,
   python3-all,
   python3-setuptools,
   python3-docutils,
   python3-sphinx,
-  python3-psutil,
-  python3-daemon,
-  python3-systemd
+  python3-typing-extensions,
 Standards-Version: 3.9.8
 X-Python3-Version: >= 3.7
 
 Package: python3-orcha
 Architecture: all
-Depends: 
+Depends:
   ${python3:Depends},
   ${misc:Depends},
-  python3-daemon,
-  python3-psutil,
-  python3-systemd
+  python3-pkg-resources,
+  python3-typing-extensions,
 Description: Python Orcha orchestrator (Python 3)
  This package provides the basic infrastructure for the Orcha
  orchestrator. Notice that this package does nothing by itself,

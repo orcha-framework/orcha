@@ -1,4 +1,112 @@
-python3-orcha (0.1.12) UNRELEASED; urgency=medium
+python3-orcha (0.3.0-rc5) unstable; urgency=critical
+
+  * Add new possible state reachable from "CANCELLED"
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 3 Nov 2022 13:29:00 +0100
+
+python3-orcha (0.3.0-rc4) unstable; urgency=critical
+
+  * Refactor of Orcha's internals so it uses less mutual exclusion zones
+    and ensures better performance when handling high load demands
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 3 Nov 2022 10:58:00 +0100
+
+python3-orcha (0.3.0-rc3) unstable; urgency=critical
+
+  * Third release candidate for Orcha, adding support for Pluggable interface.
+    This release is **not backward compatible** as some methods/functions are
+    deprecated or have changed completely.
+
+ -- Javier Alonso <jalonso@teldat.com>  Thu, 27 Oct 2022 16:26:00 +0200
+
+python3-orcha (0.2.6-2) unstable; urgency=high
+
+  * Fix a race condition when calling "condition" and then "on_start" that
+    could lead to potential issues as a condition may evaluate to true but
+    when reserving the resources another petition had already taken them,
+    leading to an invalid value (i.e.: negative resource amount).
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 07 Sep 2022 11:45:00 +0200
+
+python3-orcha (0.2.6-1) unstable; urgency=high
+
+  * Minor bug fixes.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 07 Sep 2022 10:00:00 +0200
+
+python3-orcha (0.2.6) unstable; urgency=high
+
+  * Managers now leverage all the logic to the "on_start" and "on_finish" functions,
+    keeping its internals defined at "start_petition" and "finish_petition" methods
+    that are called by the processor and usually are not overriden.
+
+  * "on_finish" now returns nothing and is ensured to be called only iff the petition
+    existed and was running.
+
+  * "on_start" returns a boolean but is also ensured to be called only iff the petition
+    belongs to us, it is, is a non-internal petition.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 06 Sep 2022 17:35:00 +0200
+
+python3-orcha (0.2.5) unstable; urgency=high
+
+  * Processor handles unhealthy "on_start" results, directly calling "on_finish"
+    when failed to start a petition. An update is required for those modules
+    implementing such function with custom behavior as "None" results will
+    be translated into an unhealthy status.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 06 Sep 2022 11:45:00 +0200
+
+python3-orcha (0.2.4-2) unstable; urgency=high
+
+  * Fix an issue with watchdog embedded plugin.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 31 Aug 2022 10:30:00 +0200
+
+python3-orcha (0.2.4) unstable; urgency=medium
+
+  * Move watchdog logic to manager so processor is petition independent while
+    running.
+
+ -- Javier Alonso <jalonso@teldat.com>  Wed, 31 Aug 2022 09:30:00 +0200
+
+python3-orcha (0.2.3) unstable; urgency=medium
+
+  * Orcha has now native support for SystemD watchdog timers.
+  * Installation now deploys a template service that should be used by
+    plugins (when running in SystemD mode) for setting the watchdog.
+
+ -- Javier Alonso <jalonso@teldat.com>  Tue, 30 Aug 2022 12:30:00 +0200
+
+python3-orcha (0.2.2) unstable; urgency=medium
+
+  * Petitions now have an internal state which represents its status. This
+    allows cancelling a petition even if it has not been started yet.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 01 Aug 2022 11:31:00 +0200
+
+python3-orcha (0.2.1) unstable; urgency=medium
+
+  * Minor fix for subclasses inheriting from SignalingPetition, which
+    didn't allow default values.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 04 Jul 2022 12:05:00 +0200
+
+python3-orcha (0.2.0) unstable; urgency=medium
+
+  * Petitions now support new attributes for defining how to end the process they
+    spawned. Such methods allow defining the signal that may be sent to the process,
+    whether to kill also parent process or to call a provided function that receives
+    the petition itself, for running a custom command. For that reason, two new
+    subclasses are now defined for sending a signal or running a function.
+
+  * Petition class now has an abstract method "terminate" which receives the PID
+    of the process to terminate and must be overridden by subclasses. This is a
+    breaking change, so we jumped to version 0.2.0.
+
+ -- Javier Alonso <jalonso@teldat.com>  Mon, 04 Jul 2022 12:00:00 +0200
+
+python3-orcha (0.1.12) unstable; urgency=medium
 
   * Key parameter is not mandatory anymore - some plugins may not require it for working.
   * Improve authentication error messages by giving some extra information.

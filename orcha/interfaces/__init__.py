@@ -20,26 +20,13 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """:mod:`interfaces` defines the basic structure needed when communicating with Orcha"""
-from .message import Message
-from .petition import (
-    ActionCallbackT,
-    EmptyPetition,
-    P,
-    Petition,
-    ProcT,
-    WatchdogPetition,
-)
-from .service import ServiceWrapper, register_service, start_service
+from __future__ import annotations
+
+from .decorators import is_implemented, notimplemented
+from .result import Result
 
 __all__ = [
-    "ActionCallbackT",
-    "EmptyPetition",
-    "Message",
-    "P",
-    "Petition",
-    "ProcT",
-    "register_service",
-    "ServiceWrapper",
-    "start_service",
-    "WatchdogPetition",
+    "notimplemented",
+    "is_implemented",
+    "Result",
 ]

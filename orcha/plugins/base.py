@@ -20,20 +20,26 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Base plugin which all plugins must inherit from"""
-import argparse
-import importlib
-import pkgutil
+from __future__ import annotations
+
+import signal
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Type, TypeVar
 
+from typing import final
+
+from ..lib.orcha import Orcha
+from ..lib.wrapper import MessageWrapper
 from ..utils.logging_utils import get_logger
 
-B = TypeVar("B", bound="BasePlugin")
-"""
-Type var that represents a :class:`BasePlugin` instance or any subclass
-that inherits from it
-"""
+if typing.TYPE_CHECKING:
+    from argparse import ArgumentParser, Namespace
+    from typing import Callable, Type
+    from queue import Queue
+
+    from orcha.ext.manager import Manager
+    from orcha.ext.message import Message
 
 
 log = get_logger()
@@ -46,9 +52,9 @@ class BasePlugin(ABC):
 
     There are three exposed attributes:
 
-        + :attr:`name`, which is the name of the command.
-        + :attr:`aliases`, which are aliases for the command.
-        + :attr:`help`, which is a help string for the command.
+        - :attr:`name`, which is the name of the command.
+        - :attr:`aliases`, which are aliases for the command.
+        - :attr:`help`, which is a help string for the command.
 
     In order to the plugin to work, you just need to inherit from this class
     and define all the required properties, such as :attr:`name`. Orcha by
@@ -58,7 +64,7 @@ class BasePlugin(ABC):
         In order the above method to work, you **must follow** an strict
         import order/path in your application. If you have a look at the
         :func:`main <orcha.bin.main>`,
-        you will notice that two requirements must be fullfilled:
+        you will notice that two requirements must be fulfilled:
 
             1. Your plugin/module must be named as ``orcha_<YOUR_PLUGIN>`` so Orcha can find it.
             2. Your plugin/module must export the plugin class directly with the name ``plugin``.
@@ -121,67 +127,124 @@ class BasePlugin(ABC):
     """
 
     name: str = field(init=False)
-    """The name that your command will have, when called from the CLI"""
+    """The name that your command will have, when called from the CLI."""
+
+    manager: Type[Manager] = field(init=False)
+    """The manager class that will handle the CLI arguments. This class MUST implement an empty
+    constructor. When instantiated, Orcha will be automatically instantiated using this manager
+    as base."""
 
     aliases: tuple = field(init=False, default=())
-    """Optional tuple containing aliases for your command"""
+    """Optional tuple containing aliases for your command."""
 
-    help: str = field(init=False, default=None)
+    help: str | None = field(init=False, default=None)
     """
     Optional help string that will be shown when the user sets the "``--help``" option on
-    your command
+    your command.
     """
 
-    def __init__(self, subparser):
-        self._subparser = subparser
-        self.create_parser(self._parser)
+    server_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
+    """
+    Function to be run when Orcha asks the plugin for its service parser, if any. Setting this
+    function to :obj:`None` disables the service functionality for this plugin (it is,
+    ``orcha serve`` will not display your plugin).
 
-    @property
-    def _parser(self) -> argparse.ArgumentParser:
-        kwargs = {
-            "name": self.name,
-            "aliases": self.aliases,
-        }
-        if self.help is not None:
-            kwargs["help"] = self.help
+    The function you provide must accept a single argument whose kind is
+    :obj:`argparse.ArgumentParser`, which refers to the service parser you should use to define
+    your own sub-commands.
 
-        p = self._subparser.add_parser(**kwargs)
-        p.set_defaults(owner=self)
-        p.add_argument("--version", action="version", version=self.version())
-        return p
+    Note:
+        The parser is automatically configured to be your plugin's :attr:`name`. You do not need to
+        create your parser, unless required.
 
-    def can_handle(self, owner: Type[B]) -> bool:
-        """Returns whether if the plugin can handle the input command or not
+    Within such parser, you can add your commands and required configuration for your service to
+    work. Notice that, by default, all given properties will be stored at
+    :obj:`orcha.properties.extras`, where you can access them.
 
-        Args:
-            owner (BasePlugin): instance that "owns" the input command.
+    If your plugin is eligible for being run, it will be automatically started and you shall
+    configure it at your :class:`Manager <orcha.ext.Manager>`'s ``__init__``.
 
-        Returns:
-            bool: :obj:`True` if the plugin can handle the command, :obj:`False` otherwise.
-        """
-        return self == owner
+    Tip:
+        As this field is expecting a function, you can fed here whatever you want: from
+        :obj:`classmethod`, simple functions to :obj:`staticmethod`::
+
+            class MyManager(Manager):
+                @staticmethod
+                def service_parser(parser):
+                    ...
+
+            class MyPlugin(BasePlugin):
+                service_parser = MyManager.service_parser
+    """
+
+    client_parser: Callable[[ArgumentParser], None] | None = field(init=False, default=None)
+    """
+    Function to be run when Orcha asks the plugin for its client parser, if any. Setting this
+    function to :obj:`None` disables the client functionality for this plugin (it is, ``orcha run``
+    will not display your plugin).
+
+    The function you provide must accept a single argument whose kind is
+    :obj:`argparse.ArgumentParser`, which refers to the service parser you should use to define
+    your own sub-commands.
+
+    Note:
+        The parser is automatically configured to be your plugin's :attr:`name`. You do not need to
+        create your parser, unless required.
+
+    Within such parser, you can add your commands and required configuration for your service to
+    work.
+
+    If your plugin is eligible for being run, the method :meth:`client_main` will be run. In there,
+    you will receive :obj:`namespace <argparse.Namespace>` arguments as well as the
+    :class:`orcha <orcha.lib.Orcha>` instance.
+
+    See also: :attr:`service_parser` for more information and tips.
+    """
+
+    @final
+    def server_main(self, orcha: Orcha) -> int:
+        ret = 0
+
+        def do_shutdown(*_):
+            nonlocal ret
+            ret = orcha.shutdown()
+
+        signal.signal(signal.SIGTERM, do_shutdown)
+        signal.signal(signal.SIGINT, do_shutdown)
+
+        try:
+            orcha.serve()
+        except Exception as err:
+            log.critical("unhandled exception while starting manager! %s", err, exc_info=True)
+            ret = 1
+        finally:
+            do_shutdown()
+
+        return ret
 
     @abstractmethod
-    def create_parser(self, parser: argparse.ArgumentParser):
-        """Creates a parser that includes the subcommands and arguments required for
-        the plugin to work. The parser will be always a child from Orcha parser.
-
-        Args:
-            parser (argparse.ArgumentParser): custom parser to work with Orcha
-        """
+    def client_message(self, args: Namespace) -> Message:
         ...
 
     @abstractmethod
-    def handle(self, namespace: argparse.Namespace) -> int:
-        """Handles the input command by probably running a main process.
-
-        Args:
-            namespace (argparse.Namespace): arguments received from CLI
-
-        Returns:
-            int: main application return code, if any
-        """
+    def client_handle(self, queue: Queue) -> int:
         ...
+
+    def client_main(self, namespace: Namespace, orcha: Orcha) -> int:
+        orcha.connect()
+        queue = orcha.Queue()
+        msg = self.client_message(namespace)
+        if msg is not None:
+            wrap = MessageWrapper(msg, queue)
+            orcha.send(wrap)
+        return self.client_handle(queue)
+
+    @final
+    def handle(self, namespace: Namespace, is_client: bool) -> int:
+        orcha = Orcha.as_client() if is_client else Orcha.with_manager(self.manager)
+        if is_client:
+            return self.client_main(namespace, orcha)
+        return self.server_main(orcha)
 
     @staticmethod
     @abstractmethod
@@ -194,47 +257,8 @@ class BasePlugin(ABC):
             <PluginName> - <PluginVersion>
 
         Returns:
-            str: the version identifier
+            :obj:`str`: the version identifier
         """
-        ...
 
 
-def query_plugins() -> List[Type[B]]:
-    """
-    Query all installed plugins on the system. Notice that plugins must start with the
-    prefix ``orcha_`` and must export an object with name ``plugin`` which holds a reference
-    to a class inheriting from :class:`BasePlugin`.
-
-    Returns:
-        list[BasePlugin]: a dictionary whose keys are module names and the value is
-                               the module itself.
-    """
-    discovered_plugins = {
-        name: importlib.import_module(name)
-        for _, name, _ in pkgutil.iter_modules()
-        if name.startswith("orcha_")
-    }
-    plugins = []
-    for plugin, mod in discovered_plugins.items():
-        pl: Type[B] = getattr(mod, "plugin", None)
-        if pl is None:
-            log.warning(
-                'invalid plugin specified for "%s". '
-                "Is there a plugin export class defined in __init__?",
-                plugin,
-            )
-            continue
-
-        if not issubclass(pl, BasePlugin):
-            log.warning(
-                'invalid class "%s" found when loading plugin "%s" - not a "BasePlugin" subclass',
-                pl,
-                plugin,
-            )
-            continue
-        plugins.append(pl)
-
-    return plugins
-
-
-__all__ = ["BasePlugin", "B", "query_plugins"]
+__all__ = ["BasePlugin"]

@@ -20,24 +20,27 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #                                    SOFTWARE.
 """Command line utilities that can be used by subprojects or plugins"""
-import shlex
-import signal
-import subprocess
-from typing import Any, Callable, Collection, Optional, Union
+from __future__ import annotations
 
-import psutil
+import shlex
+import subprocess
+import typing
 
 from .logging_utils import get_logger
+from .ops import nop
+
+if typing.TYPE_CHECKING:
+    from typing import Any, Callable, Sequence
 
 log = get_logger()
 
 
 def run_command(
-    cmd: Union[str, Collection[str]],
-    on_start: Callable[[subprocess.Popen], Any] = None,
-    on_output: Callable[[str], Any] = None,
-    on_finish: Callable[[int], Any] = None,
-    cwd: Optional[str] = None,
+    cmd: str | Sequence[str],
+    on_start: Callable[[subprocess.Popen], Any] = nop,
+    on_output: Callable[[str], Any] = nop,
+    on_finish: Callable[[int], Any] = nop,
+    cwd: str | None = None,
 ) -> int:
     """
     Runs a command in a "secure" environment redirecting stderr into stdout and
@@ -67,19 +70,6 @@ def run_command(
     Returns:
         int: command return code
     """
-
-    def empty(_):
-        pass
-
-    if on_start is None:
-        on_start = empty
-
-    if on_output is None:
-        on_output = empty
-
-    if on_finish is None:
-        on_finish = empty
-
     command = shlex.split(cmd) if isinstance(cmd, str) else cmd
     log.debug("$ %s", cmd)
     log.debug("> %s", command)
@@ -101,23 +91,3 @@ def run_command(
         ret = proc.wait()
     on_finish(ret)
     return ret
-
-
-def kill_proc_tree(pid: int, including_parent: bool = True, sig: int = signal.SIGTERM):
-    """
-    Attempts to kill the given PID and all of its children by sending the given
-    signal, if sufficient permissions.
-
-    Args:
-        pid (int): the PID to kill alongside with its children.
-        including_parent (bool): whether to kill also the PID itself. Defaults to :obj:`True`.
-        sig (int): the signal to send to the processes. Defaults to :attr:`signal.SIGTERM`.
-    """
-    try:
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
-            child.send_signal(sig)
-        if including_parent:
-            parent.send_signal(sig)
-    except psutil.NoSuchProcess:
-        log.warning("error while trying to kill proccess with id %s", pid)

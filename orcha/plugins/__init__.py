@@ -33,7 +33,8 @@ Note:
 
     That said, plugins are **mandatory** in order to work with Orcha.
 """
-from .base import B, BasePlugin, query_plugins
+from .base import BasePlugin
 from .lp import ListPlugin
+from .utils import query_plugins
 
-__all__ = ["BasePlugin", "B", "ListPlugin", "query_plugins"]
+__all__ = ["BasePlugin", "ListPlugin", "query_plugins"]

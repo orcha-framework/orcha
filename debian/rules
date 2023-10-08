@@ -4,7 +4,13 @@ include /usr/share/dpkg/pkg-info.mk
 #export DH_VERBOSE=1
 
 %:
-	dh $@ --with python3 --buildsystem=pybuild
+	dh $@ --with python3 --with systemd --buildsystem=pybuild
+
+override_dh_systemd_enable:
+	dh_systemd_enable --name orcha-wd@ orcha-wd@.service
+
+override_dh_systemd_start:
+	dh_systemd_start --no-start
 
 export PYBUILD_NAME = orcha
 export PYBUILD_DISABLE=test
